@@ -14,6 +14,8 @@ import ClientHomePage from "./pages/client/ClientHomePage";
 import ProfessionalsPage from "./pages/client/ProfessionalsPage";
 import ProfessionalHomePage from "./pages/professional/ProfessionalHomePage";
 import RegisterConsultationPage from "./pages/professional/RegisterConsultationPage";
+import AgendaPage from "./pages/professional/AgendaPage";
+import PatientsPage from "./pages/professional/PatientsPage";
 import AdminHomePage from "./pages/admin/AdminHomePage";
 import ManageUsersPage from "./pages/admin/ManageUsersPage";
 import ManageServicesPage from "./pages/admin/ManageServicesPage";
@@ -102,6 +104,8 @@ function App() {
           path="/professional/register-consultation"
           element={<RegisterConsultationPage />}
         />
+        <Route path="/professional/agenda" element={<AgendaPage />} />
+        <Route path="/professional/patients" element={<PatientsPage />} />
       </Route>
 
       {/* Admin routes */}
