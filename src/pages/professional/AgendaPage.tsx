@@ -4,6 +4,13 @@ import { Calendar, Clock, Users, Plus, Settings, AlertCircle, CreditCard, CheckC
 import { format, addDays, startOfWeek, endOfWeek, isSameDay, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
+// 🔥 MERCADO PAGO SDK V2 INTEGRATION
+declare global {
+  interface Window {
+    MercadoPago: any;
+  }
+}
+
 type SubscriptionStatus = {
   status: string;
   expires_at: string | null;
@@ -85,6 +92,38 @@ const AgendaPage: React.FC = () => {
     }
     return "http://localhost:3001";
   };
+
+  // 🔥 LOAD MERCADO PAGO SDK V2
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://sdk.mercadopago.com/js/v2';
+    script.type = 'text/javascript';
+    script.onload = () => {
+      const publicKey = import.meta.env.VITE_MP_PUBLIC_KEY;
+      console.log('🔥 MercadoPago SDK v2 loaded, Public Key:', publicKey ? 'Found' : 'Missing');
+      
+      if (publicKey && window.MercadoPago) {
+        try {
+          new window.MercadoPago(publicKey);
+          console.log('✅ MercadoPago SDK v2 initialized successfully');
+        } catch (error) {
+          console.error('❌ Error initializing MercadoPago SDK v2:', error);
+        }
+      } else {
+        console.warn('⚠️ MercadoPago public key not found or SDK not loaded');
+      }
+    };
+    script.onerror = () => {
+      console.error('❌ Failed to load MercadoPago SDK v2');
+    };
+    document.body.appendChild(script);
+    
+    return () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -210,10 +249,14 @@ const AgendaPage: React.FC = () => {
     }
   };
 
+  // 🔥 HANDLE SUBSCRIPTION PAYMENT WITH SDK V2
   const handleSubscriptionPayment = async () => {
     try {
+      setError('');
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
+
+      console.log('🔄 Creating agenda subscription payment...');
 
       const response = await fetch(`${apiUrl}/api/agenda/create-subscription-payment`, {
         method: 'POST',
@@ -225,13 +268,19 @@ const AgendaPage: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Payment preference created:', data);
+        
+        // Open MercadoPago checkout in new tab
         window.open(data.init_point, '_blank');
+        
+        setSuccess('Redirecionando para o pagamento...');
       } else {
         const errorData = await response.json();
+        console.error('❌ Payment creation failed:', errorData);
         setError(errorData.message || 'Erro ao processar pagamento');
       }
     } catch (error) {
-      console.error('Error creating payment:', error);
+      console.error('❌ Error creating payment:', error);
       setError('Erro ao processar pagamento');
     }
   };
@@ -345,6 +394,14 @@ const AgendaPage: React.FC = () => {
                 <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
                 <span>Relatórios de atendimento</span>
               </li>
+              <li className="flex items-center">
+                <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
+                <span>Bloqueio de horários</span>
+              </li>
+              <li className="flex items-center">
+                <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
+                <span>Gestão de status das consultas</span>
+              </li>
             </ul>
           </div>
 
@@ -368,6 +425,25 @@ const AgendaPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Error/Success Messages */}
+        {error && (
+          <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
+            <div className="flex items-center">
+              <XCircle className="h-5 w-5 text-red-600 mr-2" />
+              <p className="text-red-700">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-green-50 border-l-4 border-green-400 p-4 mb-6">
+            <div className="flex items-center">
+              <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+              <p className="text-green-700">{success}</p>
+            </div>
+          </div>
+        )}
 
         {subscriptionStatus && subscriptionStatus.status === 'expired' && (
           <div className="bg-red-50 border-l-4 border-red-400 p-4">
@@ -522,7 +598,7 @@ const AgendaPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modals would go here - simplified for now */}
+      {/* Appointment Modal */}
       {showAppointmentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
