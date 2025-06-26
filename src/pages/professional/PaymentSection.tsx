@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { CreditCard, AlertCircle, CheckCircle, ExternalLink } from "lucide-react";
 
+// 🔥 MERCADO PAGO SDK V2 DECLARATION
 declare global {
   interface Window {
     MercadoPago: any;
@@ -28,28 +29,28 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({ amount }) => {
     return "http://localhost:3001";
   };
 
+  // 🔥 LOAD MERCADO PAGO SDK V2
   useEffect(() => {
-    // Load MercadoPago SDK v2
     const script = document.createElement("script");
     script.src = "https://sdk.mercadopago.com/js/v2";
     script.type = "text/javascript";
     script.onload = () => {
       const publicKey = import.meta.env.VITE_MP_PUBLIC_KEY;
-      console.log("MercadoPago Public Key:", publicKey ? "Found" : "Missing");
+      console.log("🔥 MercadoPago SDK v2 loaded for professional payment, Public Key:", publicKey ? "Found" : "Missing");
 
       if (publicKey && window.MercadoPago) {
         try {
           new window.MercadoPago(publicKey);
-          console.log("MercadoPago SDK v2 initialized successfully");
+          console.log("✅ MercadoPago SDK v2 initialized successfully for professional payment");
         } catch (error) {
-          console.error("Error initializing MercadoPago:", error);
+          console.error("❌ Error initializing MercadoPago SDK v2:", error);
         }
       } else {
-        console.warn("MercadoPago public key not found or SDK not loaded");
+        console.warn("⚠️ MercadoPago public key not found or SDK not loaded");
       }
     };
     script.onerror = () => {
-      console.error("Failed to load MercadoPago SDK");
+      console.error("❌ Failed to load MercadoPago SDK v2");
     };
     document.body.appendChild(script);
 
@@ -60,6 +61,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({ amount }) => {
     };
   }, []);
 
+  // 🔥 HANDLE PAYMENT WITH SDK V2
   const handlePayment = async () => {
     try {
       setIsLoading(true);
@@ -75,7 +77,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({ amount }) => {
         throw new Error("Valor inválido para pagamento");
       }
 
-      console.log("Creating professional payment for amount:", numericAmount);
+      console.log("🔄 Creating professional payment with SDK v2 for amount:", numericAmount);
 
       const response = await fetch(
         `${apiUrl}/api/professional/create-payment`,
@@ -97,16 +99,16 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({ amount }) => {
       }
 
       const data = await response.json();
-      console.log("Payment preference created:", data);
+      console.log("✅ Professional payment preference created with SDK v2:", data);
 
       setSuccess("Redirecionando para o pagamento...");
 
-      // Redirect to MercadoPago
+      // 🔥 REDIRECT TO MERCADOPAGO WITH SDK V2
       setTimeout(() => {
         window.open(data.init_point, '_blank');
       }, 1000);
     } catch (error) {
-      console.error("Payment error:", error);
+      console.error("❌ Professional payment error:", error);
       setError(
         error instanceof Error
           ? error.message
@@ -188,7 +190,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({ amount }) => {
 
         <div className="text-center">
           <p className="text-sm text-gray-600">
-            O pagamento será processado de forma segura pelo Mercado Pago
+            O pagamento será processado de forma segura pelo Mercado Pago (SDK v2)
           </p>
           <p className="text-xs text-gray-500 mt-1">
             Você será redirecionado para completar o pagamento

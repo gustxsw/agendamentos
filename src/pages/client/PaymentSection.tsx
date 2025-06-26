@@ -3,6 +3,7 @@ import { CreditCard, Calendar, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
+// 🔥 MERCADO PAGO SDK V2 DECLARATION
 declare global {
   interface Window {
     MercadoPago: any;
@@ -34,29 +35,28 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({
     return 'http://localhost:3001';
   };
   
+  // 🔥 LOAD MERCADO PAGO SDK V2
   useEffect(() => {
-    // Load MercadoPago SDK v2
     const script = document.createElement('script');
     script.src = 'https://sdk.mercadopago.com/js/v2';
     script.type = 'text/javascript';
     script.onload = () => {
-      // Initialize MercadoPago with public key
       const publicKey = import.meta.env.VITE_MP_PUBLIC_KEY;
-      console.log('MercadoPago Public Key:', publicKey ? 'Found' : 'Missing');
+      console.log('🔥 MercadoPago SDK v2 loaded for client payment, Public Key:', publicKey ? 'Found' : 'Missing');
       
       if (publicKey && window.MercadoPago) {
         try {
           new window.MercadoPago(publicKey);
-          console.log('MercadoPago SDK v2 initialized successfully');
+          console.log('✅ MercadoPago SDK v2 initialized successfully for client payment');
         } catch (error) {
-          console.error('Error initializing MercadoPago:', error);
+          console.error('❌ Error initializing MercadoPago SDK v2:', error);
         }
       } else {
-        console.warn('MercadoPago public key not found or SDK not loaded');
+        console.warn('⚠️ MercadoPago public key not found or SDK not loaded');
       }
     };
     script.onerror = () => {
-      console.error('Failed to load MercadoPago SDK');
+      console.error('❌ Failed to load MercadoPago SDK v2');
     };
     document.body.appendChild(script);
     
@@ -92,6 +92,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({
     fetchDependents();
   }, [userId]);
   
+  // 🔥 HANDLE PAYMENT WITH SDK V2
   const handlePayment = async () => {
     try {
       setIsLoading(true);
@@ -100,7 +101,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
       
-      console.log('Creating subscription payment for user:', userId);
+      console.log('🔄 Creating client subscription payment with SDK v2...');
       
       const response = await fetch(`${apiUrl}/api/create-subscription`, {
         method: 'POST',
@@ -120,12 +121,12 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({
       }
       
       const data = await response.json();
-      console.log('Payment preference created:', data);
+      console.log('✅ Client payment preference created with SDK v2:', data);
       
-      // Redirect to MercadoPago
+      // 🔥 REDIRECT TO MERCADOPAGO WITH SDK V2
       window.location.href = data.init_point;
     } catch (error) {
-      console.error('Payment error:', error);
+      console.error('❌ Client payment error:', error);
       setError('Ocorreu um erro ao processar o pagamento');
     } finally {
       setIsLoading(false);
@@ -192,7 +193,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({
             </button>
             
             <p className="text-sm text-gray-600 text-center">
-              O pagamento será processado de forma segura pelo Mercado Pago
+              O pagamento será processado de forma segura pelo Mercado Pago (SDK v2)
             </p>
           </>
         )}
