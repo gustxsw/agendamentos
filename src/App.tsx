@@ -21,6 +21,14 @@ import ManageUsersPage from "./pages/admin/ManageUsersPage";
 import ManageServicesPage from "./pages/admin/ManageServicesPage";
 import ReportsPage from "./pages/admin/ReportsPage";
 
+// 🔥 NEW: Enhanced pages
+import MedicalRecordsPage from "./pages/professional/MedicalRecordsPage";
+import ProfilePage from "./pages/professional/ProfilePage";
+import EnhancedAgendaPage from "./pages/professional/EnhancedAgendaPage";
+import EnhancedPatientsPage from "./pages/professional/EnhancedPatientsPage";
+import EnhancedReportsPage from "./pages/professional/EnhancedReportsPage";
+import EnhancedAdminReportsPage from "./pages/admin/EnhancedReportsPage";
+
 // Route guards
 const ProtectedRoute = ({
   children,
@@ -104,8 +112,12 @@ function App() {
           path="/professional/register-consultation"
           element={<RegisterConsultationPage />}
         />
-        <Route path="/professional/agenda" element={<AgendaPage />} />
-        <Route path="/professional/patients" element={<PatientsPage />} />
+        <Route path="/professional/agenda" element={<EnhancedAgendaPage />} />
+        <Route path="/professional/patients" element={<EnhancedPatientsPage />} />
+        <Route path="/professional/medical-records" element={<MedicalRecordsPage />} />
+        <Route path="/professional/medical-records/:patientId" element={<MedicalRecordsPage />} />
+        <Route path="/professional/reports" element={<EnhancedReportsPage />} />
+        <Route path="/professional/profile" element={<ProfilePage />} />
       </Route>
 
       {/* Admin routes */}
@@ -119,7 +131,7 @@ function App() {
         <Route path="/admin" element={<AdminHomePage />} />
         <Route path="/admin/users" element={<ManageUsersPage />} />
         <Route path="/admin/services" element={<ManageServicesPage />} />
-        <Route path="/admin/reports" element={<ReportsPage />} />
+        <Route path="/admin/reports" element={<EnhancedAdminReportsPage />} />
       </Route>
 
       {/* 🔥 CATCH-ALL - QUALQUER ROTA DESCONHECIDA VAI PARA LOGIN */}

@@ -1,7 +1,18 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Home, Users, FileText, BarChart2, Calendar, UserPlus, CalendarDays, Stethoscope } from 'lucide-react';
+import { 
+  Home, 
+  Users, 
+  FileText, 
+  BarChart2, 
+  Calendar, 
+  UserPlus, 
+  CalendarDays, 
+  Stethoscope,
+  User,
+  Settings
+} from 'lucide-react';
 
 type SidebarProps = {
   onItemClick?: () => void;
@@ -23,6 +34,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onItemClick }) => {
         { to: '/professional/register-consultation', icon: <Calendar size={20} />, label: 'Registrar Consulta' },
         { to: '/professional/agenda', icon: <CalendarDays size={20} />,  label: 'Agenda' },
         { to: '/professional/patients', icon: <Stethoscope size={20} />, label: 'Pacientes' },
+        { to: '/professional/medical-records', icon: <FileText size={20} />, label: 'Prontuários' },
+        { to: '/professional/reports', icon: <BarChart2 size={20} />, label: 'Relatórios' },
+        { to: '/professional/profile', icon: <User size={20} />, label: 'Perfil' },
       ];
     } else if (user?.currentRole === 'admin') {
       return [
