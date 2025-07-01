@@ -322,6 +322,9 @@ const EnhancedAgendaPage: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setAppointments(data);
+        console.log('✅ Appointments fetched:', data);
+      } else {
+        console.error('❌ Error fetching appointments:', response.status);
       }
     } catch (error) {
       console.error('Error fetching appointments:', error);
@@ -352,6 +355,8 @@ const EnhancedAgendaPage: React.FC = () => {
         recurrence_end: isRecurring && recurrenceEnd ? new Date(recurrenceEnd).toISOString() : null
       };
 
+      console.log('🔄 Creating appointment:', appointmentData);
+
       const response = await fetch(`${apiUrl}/api/agenda/appointments`, {
         method: 'POST',
         headers: {
@@ -362,12 +367,15 @@ const EnhancedAgendaPage: React.FC = () => {
       });
 
       if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Appointment created:', result);
         setSuccess(isRecurring ? 'Agendamentos recorrentes criados com sucesso!' : 'Agendamento criado com sucesso!');
         setShowAppointmentModal(false);
         resetAppointmentForm();
         fetchAppointments();
       } else {
         const errorData = await response.json();
+        console.error('❌ Error creating appointment:', errorData);
         setError(errorData.message || 'Erro ao criar agendamento');
       }
     } catch (error) {
@@ -420,6 +428,7 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (response.ok) {
         setSuccess('Status do agendamento atualizado!');
+        setShowViewModal(false);
         fetchAppointments();
       } else {
         setError('Erro ao atualizar agendamento');
@@ -444,6 +453,7 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (response.ok) {
         setSuccess('Agendamento excluído com sucesso!');
+        setShowViewModal(false);
         fetchAppointments();
       } else {
         setError('Erro ao excluir agendamento');
@@ -603,6 +613,21 @@ const EnhancedAgendaPage: React.FC = () => {
       return 'Data inválida';
     }
   };
+
+  // 🔥 Clear messages after 3 seconds
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => setSuccess(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [success]);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   if (isLoading) {
     return (
@@ -1082,15 +1107,20 @@ const EnhancedAgendaPage: React.FC = () => {
                   </label>
                   <input
                     type="date"
-                    value={selectedDate ? safeFormatDate(selectedDate, 'yyyy-MM-dd') : ''}
+                    value={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''}
                     onChange={(e) => {
-                      try {
-                        const newDate = new Date(e.target.value);
-                        if (isValid(newDate)) {
-                          setSelectedDate(newDate);
+                      const value = e.target.value;
+                      if (value) {
+                        try {
+                          const newDate = new Date(value + 'T00:00:00');
+                          if (isValid(newDate)) {
+                            setSelectedDate(newDate);
+                          }
+                        } catch (error) {
+                          console.error('Error setting date:', error);
                         }
-                      } catch (error) {
-                        console.error('Error setting date:', error);
+                      } else {
+                        setSelectedDate(null);
                       }
                     }}
                     className="input"
@@ -1322,6 +1352,7 @@ const EnhancedAgendaPage: React.FC = () => {
                 {/* Weekly Schedule */}
                 <div>
                   <h4 className="text-md font-medium mb-4">Horários por Dia da Semana</h4>
+                  <p className="text-sm text-gray-600 mb-4">Deixe em branco os dias que não trabalha</p>
                   <div className="space-y-4">
                     {[
                       { key: 'monday', label: 'Segunda-feira' },
