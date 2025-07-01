@@ -13,7 +13,10 @@ import {
   ChevronLeft,
   ChevronRight,
   MapPin,
-  Repeat
+  Repeat,
+  Edit,
+  Trash2,
+  Eye
 } from 'lucide-react';
 import { 
   format, 
@@ -30,7 +33,8 @@ import {
   isSameMonth,
   isToday,
   addWeeks,
-  subWeeks
+  subWeeks,
+  isValid
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -120,7 +124,8 @@ const EnhancedAgendaPage: React.FC = () => {
   // Modal states
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
-  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
 
   // Form states
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -399,6 +404,56 @@ const EnhancedAgendaPage: React.FC = () => {
     }
   };
 
+  const handleUpdateAppointment = async (appointmentId: number, status: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const apiUrl = getApiUrl();
+
+      const response = await fetch(`${apiUrl}/api/agenda/appointments/${appointmentId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status })
+      });
+
+      if (response.ok) {
+        setSuccess('Status do agendamento atualizado!');
+        fetchAppointments();
+      } else {
+        setError('Erro ao atualizar agendamento');
+      }
+    } catch (error) {
+      console.error('Error updating appointment:', error);
+      setError('Erro ao atualizar agendamento');
+    }
+  };
+
+  const handleDeleteAppointment = async (appointmentId: number) => {
+    if (!confirm('Tem certeza que deseja excluir este agendamento?')) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const apiUrl = getApiUrl();
+
+      const response = await fetch(`${apiUrl}/api/agenda/appointments/${appointmentId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        setSuccess('Agendamento excluído com sucesso!');
+        fetchAppointments();
+      } else {
+        setError('Erro ao excluir agendamento');
+      }
+    } catch (error) {
+      console.error('Error deleting appointment:', error);
+      setError('Erro ao excluir agendamento');
+    }
+  };
+
   // 🔥 HANDLE SUBSCRIPTION PAYMENT WITH SDK V2
   const handleSubscriptionPayment = async () => {
     try {
@@ -531,6 +586,21 @@ const EnhancedAgendaPage: React.FC = () => {
       case 'completed': return 'Finalizado';
       case 'cancelled': return 'Cancelado';
       default: return status;
+    }
+  };
+
+  // 🔥 Safe date formatting function
+  const safeFormatDate = (date: Date | string, formatStr: string) => {
+    try {
+      const dateObj = typeof date === 'string' ? new Date(date) : date;
+      if (!isValid(dateObj)) {
+        console.warn('Invalid date provided to safeFormatDate:', date);
+        return 'Data inválida';
+      }
+      return format(dateObj, formatStr, { locale: ptBR });
+    } catch (error) {
+      console.error('Error formatting date:', error, date);
+      return 'Data inválida';
     }
   };
 
@@ -725,14 +795,14 @@ const EnhancedAgendaPage: React.FC = () => {
           </button>
 
           <h2 className="text-xl font-semibold min-w-[200px] text-center">
-            {viewMode === 'month' && format(currentDate, "MMMM 'de' yyyy", { locale: ptBR })}
+            {viewMode === 'month' && safeFormatDate(currentDate, "MMMM 'de' yyyy")}
             {viewMode === 'week' && (
               <>
-                {format(startOfWeek(currentDate, { weekStartsOn: 1 }), "dd 'de' MMM", { locale: ptBR })} - {' '}
-                {format(endOfWeek(currentDate, { weekStartsOn: 1 }), "dd 'de' MMM 'de' yyyy", { locale: ptBR })}
+                {safeFormatDate(startOfWeek(currentDate, { weekStartsOn: 1 }), "dd 'de' MMM")} - {' '}
+                {safeFormatDate(endOfWeek(currentDate, { weekStartsOn: 1 }), "dd 'de' MMM 'de' yyyy")}
               </>
             )}
-            {viewMode === 'day' && format(currentDate, "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+            {viewMode === 'day' && safeFormatDate(currentDate, "dd 'de' MMMM 'de' yyyy")}
           </h2>
 
           <button
@@ -785,10 +855,14 @@ const EnhancedAgendaPage: React.FC = () => {
                     {dayAppointments.slice(0, 3).map((appointment) => (
                       <div
                         key={appointment.id}
-                        className={`text-xs p-1 rounded ${getStatusColor(appointment.status)}`}
+                        className={`text-xs p-1 rounded cursor-pointer hover:opacity-80 ${getStatusColor(appointment.status)}`}
+                        onClick={() => {
+                          setSelectedAppointment(appointment);
+                          setShowViewModal(true);
+                        }}
                       >
                         <div className="font-medium truncate">{appointment.patient_name}</div>
-                        <div className="truncate">{format(parseISO(appointment.date), 'HH:mm')}</div>
+                        <div className="truncate">{safeFormatDate(appointment.date, 'HH:mm')}</div>
                       </div>
                     ))}
                     {dayAppointments.length > 3 && (
@@ -809,10 +883,10 @@ const EnhancedAgendaPage: React.FC = () => {
             {getDateRange().map((day, index) => (
               <div key={index} className="p-4 bg-gray-50 text-center">
                 <div className="font-medium text-gray-700">
-                  {format(day, 'EEEE', { locale: ptBR })}
+                  {safeFormatDate(day, 'EEEE')}
                 </div>
                 <div className={`text-sm ${isToday(day) ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
-                  {format(day, 'dd/MM')}
+                  {safeFormatDate(day, 'dd/MM')}
                 </div>
               </div>
             ))}
@@ -832,7 +906,7 @@ const EnhancedAgendaPage: React.FC = () => {
                 </div>
                 {getDateRange().map((day, dayIndex) => {
                   const dayAppointments = getAppointmentsForDate(day).filter(apt => 
-                    format(parseISO(apt.date), 'HH:mm') === timeSlot
+                    safeFormatDate(apt.date, 'HH:mm') === timeSlot
                   );
 
                   return (
@@ -840,7 +914,11 @@ const EnhancedAgendaPage: React.FC = () => {
                       {dayAppointments.map((appointment) => (
                         <div
                           key={appointment.id}
-                          className={`p-2 rounded text-xs ${getStatusColor(appointment.status)} mb-1`}
+                          className={`p-2 rounded text-xs ${getStatusColor(appointment.status)} mb-1 cursor-pointer hover:opacity-80`}
+                          onClick={() => {
+                            setSelectedAppointment(appointment);
+                            setShowViewModal(true);
+                          }}
                         >
                           <div className="font-medium">{appointment.patient_name}</div>
                           <div className="flex items-center">
@@ -853,16 +931,6 @@ const EnhancedAgendaPage: React.FC = () => {
                               <Repeat className="h-3 w-3 mr-1" />
                               <span>Recorrente</span>
                             </div>
-                          )}
-                          {appointment.patient_phone && (
-                            <a
-                              href={`https://wa.me/55${appointment.patient_phone.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-green-600 hover:text-green-800 text-xs"
-                            >
-                              WhatsApp
-                            </a>
                           )}
                         </div>
                       ))}
@@ -888,6 +956,110 @@ const EnhancedAgendaPage: React.FC = () => {
         </div>
       )}
 
+      {/* View Appointment Modal */}
+      {showViewModal && selectedAppointment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Detalhes do Agendamento</h3>
+                <button
+                  onClick={() => setShowViewModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XCircle className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Paciente</label>
+                  <p className="text-gray-900">{selectedAppointment.patient_name}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Data e Hora</label>
+                  <p className="text-gray-900">{safeFormatDate(selectedAppointment.date, "dd/MM/yyyy 'às' HH:mm")}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Local</label>
+                  <p className="text-gray-900">{selectedAppointment.location_name}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedAppointment.status)}`}>
+                    {getStatusText(selectedAppointment.status)}
+                  </span>
+                </div>
+
+                {selectedAppointment.notes && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Observações</label>
+                    <p className="text-gray-900">{selectedAppointment.notes}</p>
+                  </div>
+                )}
+
+                {selectedAppointment.patient_phone && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Contato</label>
+                    <a
+                      href={`https://wa.me/55${selectedAppointment.patient_phone.replace(/\D/g, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-green-600 hover:text-green-800"
+                    >
+                      WhatsApp: {selectedAppointment.patient_phone}
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-between mt-6">
+                <div className="flex space-x-2">
+                  {selectedAppointment.status === 'scheduled' && (
+                    <button
+                      onClick={() => handleUpdateAppointment(selectedAppointment.id, 'confirmed')}
+                      className="btn btn-primary text-sm"
+                    >
+                      Confirmar
+                    </button>
+                  )}
+                  {selectedAppointment.status === 'confirmed' && (
+                    <button
+                      onClick={() => handleUpdateAppointment(selectedAppointment.id, 'in_progress')}
+                      className="btn btn-primary text-sm"
+                    >
+                      Iniciar
+                    </button>
+                  )}
+                  {selectedAppointment.status === 'in_progress' && (
+                    <button
+                      onClick={() => handleUpdateAppointment(selectedAppointment.id, 'completed')}
+                      className="btn btn-primary text-sm"
+                    >
+                      Finalizar
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => handleDeleteAppointment(selectedAppointment.id)}
+                    className="btn bg-red-600 text-white hover:bg-red-700 text-sm flex items-center"
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Appointment Modal */}
       {showAppointmentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -910,8 +1082,17 @@ const EnhancedAgendaPage: React.FC = () => {
                   </label>
                   <input
                     type="date"
-                    value={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''}
-                    onChange={(e) => setSelectedDate(new Date(e.target.value))}
+                    value={selectedDate ? safeFormatDate(selectedDate, 'yyyy-MM-dd') : ''}
+                    onChange={(e) => {
+                      try {
+                        const newDate = new Date(e.target.value);
+                        if (isValid(newDate)) {
+                          setSelectedDate(newDate);
+                        }
+                      } catch (error) {
+                        console.error('Error setting date:', error);
+                      }
+                    }}
                     className="input"
                   />
                 </div>
