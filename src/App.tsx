@@ -13,7 +13,7 @@ import RegisterPage from "./pages/RegisterPage";
 import ClientHomePage from "./pages/client/ClientHomePage";
 import ProfessionalsPage from "./pages/client/ProfessionalsPage";
 import ProfessionalHomePage from "./pages/professional/ProfessionalHomePage";
-import RegisterConsultationPage from "./pages/professional/RegisterConsultationPage";
+import UnifiedConsultationPage from "./pages/professional/UnifiedConsultationPage";
 import AgendaPage from "./pages/professional/AgendaPage";
 import PatientsPage from "./pages/professional/PatientsPage";
 import AdminHomePage from "./pages/admin/AdminHomePage";
@@ -110,7 +110,7 @@ function App() {
         <Route path="/professional" element={<ProfessionalHomePage />} />
         <Route
           path="/professional/register-consultation"
-          element={<RegisterConsultationPage />}
+          element={<UnifiedConsultationPage />}
         />
         <Route path="/professional/agenda" element={<EnhancedAgendaPage />} />
         <Route path="/professional/patients" element={<EnhancedPatientsPage />} />

@@ -31,7 +31,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onItemClick }) => {
     } else if (user?.currentRole === 'professional') {
       return [
         { to: '/professional', icon: <Home size={20} />, label: 'Início' },
-        { to: '/professional/register-consultation', icon: <Calendar size={20} />, label: 'Registrar Consulta' },
+        { to: '/professional/register-consultation', icon: <Calendar size={20} />, label: 'Nova Consulta' },
         { to: '/professional/agenda', icon: <CalendarDays size={20} />,  label: 'Agenda' },
         { to: '/professional/patients', icon: <Stethoscope size={20} />, label: 'Pacientes' },
         { to: '/professional/medical-records', icon: <FileText size={20} />, label: 'Prontuários' },
