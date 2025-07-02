@@ -4,13 +4,6 @@ import { Calendar, Clock, Users, Plus, Settings, AlertCircle, CreditCard, CheckC
 import { format, addDays, startOfWeek, endOfWeek, isSameDay, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-// 🔥 MERCADO PAGO SDK V2 INTEGRATION
-declare global {
-  interface Window {
-    MercadoPago: any;
-  }
-}
-
 type SubscriptionStatus = {
   status: string;
   expires_at: string | null;
@@ -128,28 +121,28 @@ const EnhancedAgendaPage: React.FC = () => {
     return "http://localhost:3001";
   };
 
-  // 🔥 LOAD MERCADO PAGO SDK V2
+  // Load MercadoPago SDK
   useEffect(() => {
     const script = document.createElement('script');
     script.src = 'https://sdk.mercadopago.com/js/v2';
     script.type = 'text/javascript';
     script.onload = () => {
       const publicKey = import.meta.env.VITE_MP_PUBLIC_KEY;
-      console.log('🔥 MercadoPago SDK v2 loaded, Public Key:', publicKey ? 'Found' : 'Missing');
+      console.log('MercadoPago SDK loaded, Public Key:', publicKey ? 'Found' : 'Missing');
       
-      if (publicKey && window.MercadoPago) {
+      if (publicKey && (window as any).MercadoPago) {
         try {
-          new window.MercadoPago(publicKey);
-          console.log('✅ MercadoPago SDK v2 initialized successfully');
+          new (window as any).MercadoPago(publicKey);
+          console.log('MercadoPago SDK initialized successfully');
         } catch (error) {
-          console.error('❌ Error initializing MercadoPago SDK v2:', error);
+          console.error('Error initializing MercadoPago SDK:', error);
         }
       } else {
-        console.warn('⚠️ MercadoPago public key not found or SDK not loaded');
+        console.warn('MercadoPago public key not found or SDK not loaded');
       }
     };
     script.onerror = () => {
-      console.error('❌ Failed to load MercadoPago SDK v2');
+      console.error('Failed to load MercadoPago SDK');
     };
     document.body.appendChild(script);
     
@@ -176,7 +169,7 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      console.log('🔄 Fetching agenda data...');
+      console.log('Fetching agenda data...');
 
       // Fetch subscription status
       const subscriptionResponse = await fetch(`${apiUrl}/api/agenda/subscription-status`, {
@@ -185,7 +178,7 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (subscriptionResponse.ok) {
         const subscriptionData = await subscriptionResponse.json();
-        console.log('✅ Subscription data:', subscriptionData);
+        console.log('Subscription data:', subscriptionData);
         setSubscriptionStatus(subscriptionData);
 
         if (subscriptionData.can_use_agenda) {
@@ -196,7 +189,7 @@ const EnhancedAgendaPage: React.FC = () => {
 
           if (configResponse.ok) {
             const configData = await configResponse.json();
-            console.log('✅ Schedule config:', configData);
+            console.log('Schedule config:', configData);
             setScheduleConfig(configData);
             
             // Update form with existing config
@@ -230,13 +223,13 @@ const EnhancedAgendaPage: React.FC = () => {
 
           if (patientsResponse.ok) {
             const patientsData = await patientsResponse.json();
-            console.log('✅ Patients data:', patientsData);
+            console.log('Patients data:', patientsData);
             setPatients(patientsData);
           }
         }
       }
     } catch (error) {
-      console.error('❌ Error fetching data:', error);
+      console.error('Error fetching data:', error);
       setError('Erro ao carregar dados da agenda');
     } finally {
       setIsLoading(false);
@@ -251,7 +244,7 @@ const EnhancedAgendaPage: React.FC = () => {
       const startDate = startOfWeek(currentWeek, { weekStartsOn: 1 });
       const endDate = endOfWeek(currentWeek, { weekStartsOn: 1 });
 
-      console.log('🔄 Fetching appointments for week:', {
+      console.log('Fetching appointments for week:', {
         start: startDate.toISOString(),
         end: endDate.toISOString()
       });
@@ -265,13 +258,13 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Appointments fetched:', data);
+        console.log('Appointments fetched:', data);
         setAppointments(data);
       } else {
-        console.error('❌ Failed to fetch appointments:', response.status);
+        console.error('Failed to fetch appointments:', response.status);
       }
     } catch (error) {
-      console.error('❌ Error fetching appointments:', error);
+      console.error('Error fetching appointments:', error);
     }
   };
 
@@ -280,7 +273,7 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      console.log('🔄 Saving schedule config:', configForm);
+      console.log('Saving schedule config:', configForm);
 
       // Convert empty strings to null for time fields
       const configToSave = {
@@ -314,17 +307,17 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Schedule config saved:', data);
+        console.log('Schedule config saved:', data);
         setScheduleConfig(data);
         setSuccess('Configuração de horários salva com sucesso!');
         setShowConfigModal(false);
       } else {
         const errorData = await response.json();
-        console.error('❌ Error saving config:', errorData);
+        console.error('Error saving config:', errorData);
         setError(errorData.message || 'Erro ao salvar configuração');
       }
     } catch (error) {
-      console.error('❌ Error saving schedule config:', error);
+      console.error('Error saving schedule config:', error);
       setError('Erro ao salvar configuração');
     }
   };
@@ -339,11 +332,11 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      // 🔥 CORREÇÃO: Criar data corretamente
+      // Create date correctly
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
       const appointmentDateTime = `${dateStr}T${selectedTime}:00`;
       
-      console.log('🔄 Creating appointment:', {
+      console.log('Creating appointment:', {
         patient_id: parseInt(selectedPatient),
         date: appointmentDateTime,
         status: appointmentStatus,
@@ -366,7 +359,7 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (response.ok) {
         const newAppointment = await response.json();
-        console.log('✅ Appointment created:', newAppointment);
+        console.log('Appointment created:', newAppointment);
         
         setSuccess('Agendamento criado com sucesso!');
         setShowAppointmentModal(false);
@@ -382,11 +375,11 @@ const EnhancedAgendaPage: React.FC = () => {
         await fetchAppointments();
       } else {
         const errorData = await response.json();
-        console.error('❌ Error creating appointment:', errorData);
+        console.error('Error creating appointment:', errorData);
         setError(errorData.message || 'Erro ao criar agendamento');
       }
     } catch (error) {
-      console.error('❌ Error creating appointment:', error);
+      console.error('Error creating appointment:', error);
       setError('Erro ao criar agendamento');
     }
   };
@@ -396,7 +389,7 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      console.log('🔄 Updating appointment:', appointmentId, updates);
+      console.log('Updating appointment:', appointmentId, updates);
 
       const response = await fetch(`${apiUrl}/api/agenda/appointments/${appointmentId}`, {
         method: 'PUT',
@@ -408,16 +401,16 @@ const EnhancedAgendaPage: React.FC = () => {
       });
 
       if (response.ok) {
-        console.log('✅ Appointment updated');
+        console.log('Appointment updated');
         setSuccess('Agendamento atualizado com sucesso!');
         await fetchAppointments();
       } else {
         const errorData = await response.json();
-        console.error('❌ Error updating appointment:', errorData);
+        console.error('Error updating appointment:', errorData);
         setError(errorData.message || 'Erro ao atualizar agendamento');
       }
     } catch (error) {
-      console.error('❌ Error updating appointment:', error);
+      console.error('Error updating appointment:', error);
       setError('Erro ao atualizar agendamento');
     }
   };
@@ -429,7 +422,7 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      console.log('🔄 Deleting appointment:', appointmentId);
+      console.log('Deleting appointment:', appointmentId);
 
       const response = await fetch(`${apiUrl}/api/agenda/appointments/${appointmentId}`, {
         method: 'DELETE',
@@ -437,16 +430,16 @@ const EnhancedAgendaPage: React.FC = () => {
       });
 
       if (response.ok) {
-        console.log('✅ Appointment deleted');
+        console.log('Appointment deleted');
         setSuccess('Agendamento excluído com sucesso!');
         await fetchAppointments();
       } else {
         const errorData = await response.json();
-        console.error('❌ Error deleting appointment:', errorData);
+        console.error('Error deleting appointment:', errorData);
         setError(errorData.message || 'Erro ao excluir agendamento');
       }
     } catch (error) {
-      console.error('❌ Error deleting appointment:', error);
+      console.error('Error deleting appointment:', error);
       setError('Erro ao excluir agendamento');
     }
   };
@@ -461,7 +454,7 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      console.log('🔄 Creating patient:', patientForm);
+      console.log('Creating patient:', patientForm);
 
       const response = await fetch(`${apiUrl}/api/agenda/patients`, {
         method: 'POST',
@@ -478,7 +471,7 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (response.ok) {
         const newPatient = await response.json();
-        console.log('✅ Patient created:', newPatient);
+        console.log('Patient created:', newPatient);
         
         setPatients([...patients, newPatient]);
         setSuccess('Paciente adicionado com sucesso!');
@@ -494,23 +487,22 @@ const EnhancedAgendaPage: React.FC = () => {
         });
       } else {
         const errorData = await response.json();
-        console.error('❌ Error creating patient:', errorData);
+        console.error('Error creating patient:', errorData);
         setError(errorData.message || 'Erro ao criar paciente');
       }
     } catch (error) {
-      console.error('❌ Error creating patient:', error);
+      console.error('Error creating patient:', error);
       setError('Erro ao criar paciente');
     }
   };
 
-  // 🔥 HANDLE SUBSCRIPTION PAYMENT WITH SDK V2
   const handleSubscriptionPayment = async () => {
     try {
       setError('');
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      console.log('🔄 Creating agenda subscription payment...');
+      console.log('Creating agenda subscription payment...');
 
       const response = await fetch(`${apiUrl}/api/agenda/create-subscription-payment`, {
         method: 'POST',
@@ -522,7 +514,7 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Payment preference created:', data);
+        console.log('Payment preference created:', data);
         
         // Open MercadoPago checkout in new tab
         window.open(data.init_point, '_blank');
@@ -530,11 +522,11 @@ const EnhancedAgendaPage: React.FC = () => {
         setSuccess('Redirecionando para o pagamento...');
       } else {
         const errorData = await response.json();
-        console.error('❌ Payment creation failed:', errorData);
+        console.error('Payment creation failed:', errorData);
         setError(errorData.message || 'Erro ao processar pagamento');
       }
     } catch (error) {
-      console.error('❌ Error creating payment:', error);
+      console.error('Error creating payment:', error);
       setError('Erro ao processar pagamento');
     }
   };

@@ -897,6 +897,58 @@ app.delete('/api/agenda/appointments/:id', authenticate, authorize(['professiona
   }
 });
 
+// Agenda subscription payment
+app.post('/api/agenda/create-subscription-payment', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    if (!mercadopago) {
+      return res.status(500).json({ message: 'MercadoPago não configurado' });
+    }
+
+    const professionalId = req.user.id;
+    const amount = 49.90;
+
+    console.log('🔄 Creating agenda subscription payment for professional:', professionalId);
+
+    const preference = new Preference(mercadopago);
+
+    const preferenceData = {
+      items: [
+        {
+          title: 'Assinatura Agenda Profissional - Quiro Ferreira',
+          description: 'Acesso completo à agenda profissional por 30 dias',
+          quantity: 1,
+          unit_price: amount,
+          currency_id: 'BRL'
+        }
+      ],
+      payer: {
+        email: 'professional@quiroferreira.com.br'
+      },
+      back_urls: {
+        success: `${req.protocol}://${req.get('host')}/agenda/payment/success`,
+        failure: `${req.protocol}://${req.get('host')}/agenda/payment/failure`,
+        pending: `${req.protocol}://${req.get('host')}/agenda/payment/pending`
+      },
+      auto_return: 'approved',
+      external_reference: `agenda_${professionalId}_${Date.now()}`,
+      notification_url: `${req.protocol}://${req.get('host')}/api/agenda/payment-webhook`
+    };
+
+    const result = await preference.create({ body: preferenceData });
+
+    console.log('✅ Agenda payment preference created:', result.id);
+
+    res.json({
+      id: result.id,
+      init_point: result.init_point,
+      sandbox_init_point: result.sandbox_init_point
+    });
+  } catch (error) {
+    console.error('❌ Error creating agenda payment:', error);
+    res.status(500).json({ message: 'Erro ao criar pagamento da agenda' });
+  }
+});
+
 // Other existing routes...
 app.get('/api/users', authenticate, authorize(['admin']), async (req, res) => {
   try {
@@ -962,6 +1014,272 @@ app.get('/api/services', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error fetching services:', error);
     res.status(500).json({ message: 'Erro internal do servidor' });
+  }
+});
+
+// Consultations
+app.get('/api/consultations', authenticate, async (req, res) => {
+  try {
+    let query = `
+      SELECT c.*, 
+             COALESCE(u.name, d.name) as client_name,
+             s.name as service_name,
+             prof.name as professional_name,
+             CASE WHEN c.dependent_id IS NOT NULL THEN true ELSE false END as is_dependent
+      FROM consultations c
+      LEFT JOIN users u ON c.client_id = u.id
+      LEFT JOIN dependents d ON c.dependent_id = d.id
+      JOIN services s ON c.service_id = s.id
+      JOIN users prof ON c.professional_id = prof.id
+    `;
+
+    const params = [];
+
+    // Filter by role
+    if (req.user.currentRole === 'professional') {
+      query += ' WHERE c.professional_id = $1';
+      params.push(req.user.id);
+    } else if (req.user.currentRole === 'client') {
+      query += ' WHERE (c.client_id = $1 OR c.dependent_id IN (SELECT id FROM dependents WHERE client_id = $1))';
+      params.push(req.user.id);
+    }
+
+    query += ' ORDER BY c.date DESC';
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching consultations:', error);
+    res.status(500).json({ message: 'Erro interno do servidor' });
+  }
+});
+
+app.post('/api/consultations', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { client_id, dependent_id, service_id, value, date } = req.body;
+    const professional_id = req.user.id;
+
+    if ((!client_id && !dependent_id) || (client_id && dependent_id)) {
+      return res.status(400).json({ message: 'Deve ser especificado apenas client_id OU dependent_id' });
+    }
+
+    const result = await pool.query(`
+      INSERT INTO consultations (client_id, dependent_id, professional_id, service_id, value, date)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [client_id, dependent_id, professional_id, service_id, value, date]);
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating consultation:', error);
+    res.status(500).json({ message: 'Erro interno do servidor' });
+  }
+});
+
+// Dependents
+app.get('/api/dependents/:clientId', authenticate, async (req, res) => {
+  try {
+    const clientId = req.params.clientId;
+    
+    const result = await pool.query(
+      'SELECT * FROM dependents WHERE client_id = $1 ORDER BY name',
+      [clientId]
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching dependents:', error);
+    res.status(500).json({ message: 'Erro interno do servidor' });
+  }
+});
+
+app.get('/api/dependents/lookup', authenticate, async (req, res) => {
+  try {
+    const { cpf } = req.query;
+    
+    if (!cpf) {
+      return res.status(400).json({ message: 'CPF é obrigatório' });
+    }
+
+    const cleanCpf = cpf.replace(/\D/g, '');
+
+    const result = await pool.query(`
+      SELECT d.*, u.name as client_name, u.subscription_status as client_subscription_status
+      FROM dependents d
+      JOIN users u ON d.client_id = u.id
+      WHERE d.cpf = $1
+    `, [cleanCpf]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Dependente não encontrado' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error looking up dependent:', error);
+    res.status(500).json({ message: 'Erro interno do servidor' });
+  }
+});
+
+// Clients lookup
+app.get('/api/clients/lookup', authenticate, async (req, res) => {
+  try {
+    const { cpf } = req.query;
+    
+    if (!cpf) {
+      return res.status(400).json({ message: 'CPF é obrigatório' });
+    }
+
+    const cleanCpf = cpf.replace(/\D/g, '');
+
+    const result = await pool.query(`
+      SELECT id, name, cpf, subscription_status
+      FROM users 
+      WHERE cpf = $1 AND 'client' = ANY(roles)
+    `, [cleanCpf]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Cliente não encontrado' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error looking up client:', error);
+    res.status(500).json({ message: 'Erro interno do servidor' });
+  }
+});
+
+// Professionals
+app.get('/api/professionals', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT u.id, u.name, u.email, u.phone, u.roles, u.address, u.address_number,
+             u.address_complement, u.neighborhood, u.city, u.state, u.photo_url,
+             sc.name as category_name
+      FROM users u
+      LEFT JOIN service_categories sc ON u.category_id = sc.id
+      WHERE 'professional' = ANY(u.roles)
+      ORDER BY u.name
+    `);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching professionals:', error);
+    res.status(500).json({ message: 'Erro interno do servidor' });
+  }
+});
+
+// Reports
+app.get('/api/reports/revenue', authenticate, authorize(['admin']), async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+
+    if (!start_date || !end_date) {
+      return res.status(400).json({ message: 'Datas de início e fim são obrigatórias' });
+    }
+
+    // Revenue by professional
+    const professionalRevenueResult = await pool.query(`
+      SELECT 
+        prof.name as professional_name,
+        prof.percentage as professional_percentage,
+        COUNT(c.id) as consultation_count,
+        SUM(c.value) as revenue,
+        SUM(c.value * prof.percentage / 100) as professional_payment,
+        SUM(c.value * (100 - prof.percentage) / 100) as clinic_revenue
+      FROM consultations c
+      JOIN users prof ON c.professional_id = prof.id
+      WHERE c.date >= $1 AND c.date <= $2
+      GROUP BY prof.id, prof.name, prof.percentage
+      ORDER BY revenue DESC
+    `, [start_date, end_date]);
+
+    // Revenue by service
+    const serviceRevenueResult = await pool.query(`
+      SELECT 
+        s.name as service_name,
+        COUNT(c.id) as consultation_count,
+        SUM(c.value) as revenue
+      FROM consultations c
+      JOIN services s ON c.service_id = s.id
+      WHERE c.date >= $1 AND c.date <= $2
+      GROUP BY s.id, s.name
+      ORDER BY revenue DESC
+    `, [start_date, end_date]);
+
+    // Total revenue
+    const totalRevenueResult = await pool.query(`
+      SELECT SUM(c.value) as total_revenue
+      FROM consultations c
+      WHERE c.date >= $1 AND c.date <= $2
+    `, [start_date, end_date]);
+
+    res.json({
+      total_revenue: parseFloat(totalRevenueResult.rows[0].total_revenue || 0),
+      revenue_by_professional: professionalRevenueResult.rows.map(row => ({
+        ...row,
+        revenue: parseFloat(row.revenue),
+        professional_payment: parseFloat(row.professional_payment),
+        clinic_revenue: parseFloat(row.clinic_revenue)
+      })),
+      revenue_by_service: serviceRevenueResult.rows.map(row => ({
+        ...row,
+        revenue: parseFloat(row.revenue)
+      }))
+    });
+  } catch (error) {
+    console.error('Error generating revenue report:', error);
+    res.status(500).json({ message: 'Erro interno do servidor' });
+  }
+});
+
+app.get('/api/reports/professional-revenue', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+    const professionalId = req.user.id;
+
+    if (!start_date || !end_date) {
+      return res.status(400).json({ message: 'Datas de início e fim são obrigatórias' });
+    }
+
+    // Get professional percentage
+    const professionalResult = await pool.query(
+      'SELECT percentage FROM users WHERE id = $1',
+      [professionalId]
+    );
+
+    const percentage = professionalResult.rows[0]?.percentage || 50;
+
+    // Get consultations for the period
+    const consultationsResult = await pool.query(`
+      SELECT c.*, 
+             COALESCE(u.name, d.name) as client_name,
+             s.name as service_name
+      FROM consultations c
+      LEFT JOIN users u ON c.client_id = u.id
+      LEFT JOIN dependents d ON c.dependent_id = d.id
+      JOIN services s ON c.service_id = s.id
+      WHERE c.professional_id = $1 AND c.date >= $2 AND c.date <= $3
+      ORDER BY c.date DESC
+    `, [professionalId, start_date, end_date]);
+
+    const consultations = consultationsResult.rows.map(row => ({
+      ...row,
+      total_value: parseFloat(row.value),
+      amount_to_pay: parseFloat(row.value) * (100 - percentage) / 100
+    }));
+
+    const summary = {
+      professional_percentage: percentage,
+      consultation_count: consultations.length,
+      total_revenue: consultations.reduce((sum, c) => sum + c.total_value, 0),
+      amount_to_pay: consultations.reduce((sum, c) => sum + c.amount_to_pay, 0)
+    };
+
+    res.json({ summary, consultations });
+  } catch (error) {
+    console.error('Error generating professional revenue report:', error);
+    res.status(500).json({ message: 'Erro interno do servidor' });
   }
 });
 
