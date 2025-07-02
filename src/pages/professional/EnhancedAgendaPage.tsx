@@ -1,41 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { 
-  Calendar, 
-  Clock, 
-  Users, 
-  Plus, 
-  Settings, 
-  AlertCircle, 
-  CreditCard, 
-  CheckCircle, 
-  XCircle,
-  ChevronLeft,
-  ChevronRight,
-  MapPin,
-  Repeat,
-  Edit,
-  Trash2,
-  Eye
-} from 'lucide-react';
-import { 
-  format, 
-  addDays, 
-  startOfWeek, 
-  endOfWeek, 
-  isSameDay, 
-  parseISO, 
-  startOfMonth,
-  endOfMonth,
-  addMonths,
-  subMonths,
-  eachDayOfInterval,
-  isSameMonth,
-  isToday,
-  addWeeks,
-  subWeeks,
-  isValid
-} from 'date-fns';
+import { Calendar, Clock, Users, Plus, Settings, AlertCircle, CreditCard, CheckCircle, XCircle, Edit, Trash2, Eye } from 'lucide-react';
+import { format, addDays, startOfWeek, endOfWeek, isSameDay, parseISO, isValid } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 // 🔥 MERCADO PAGO SDK V2 INTEGRATION
@@ -44,8 +10,6 @@ declare global {
     MercadoPago: any;
   }
 }
-
-type ViewMode = 'month' | 'week' | 'day';
 
 type SubscriptionStatus = {
   status: string;
@@ -63,13 +27,6 @@ type Patient = {
   is_convenio_patient: boolean;
 };
 
-type ProfessionalLocation = {
-  id: number;
-  clinic_name: string;
-  address: string;
-  is_main: boolean;
-};
-
 type Appointment = {
   id: number;
   date: string;
@@ -79,10 +36,8 @@ type Appointment = {
   patient_name: string;
   patient_phone: string;
   is_convenio_patient: boolean;
-  location_id: number;
-  location_name: string;
-  is_recurring: boolean;
-  recurrence_pattern: string;
+  created_at: string;
+  updated_at: string;
 };
 
 type ScheduleConfig = {
@@ -104,19 +59,15 @@ type ScheduleConfig = {
   slot_duration: number;
   break_start: string | null;
   break_end: string | null;
-  work_start: string;
-  work_end: string;
 };
 
 const EnhancedAgendaPage: React.FC = () => {
   const { user } = useAuth();
-  const [viewMode, setViewMode] = useState<ViewMode>('week');
-  const [currentDate, setCurrentDate] = useState(new Date());
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [locations, setLocations] = useState<ProfessionalLocation[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig | null>(null);
+  const [currentWeek, setCurrentWeek] = useState(new Date());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -124,6 +75,8 @@ const EnhancedAgendaPage: React.FC = () => {
   // Modal states
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
+  const [showPatientModal, setShowPatientModal] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
 
@@ -131,35 +84,40 @@ const EnhancedAgendaPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState('');
   const [selectedPatient, setSelectedPatient] = useState('');
-  const [selectedLocation, setSelectedLocation] = useState('');
   const [appointmentNotes, setAppointmentNotes] = useState('');
-  const [isRecurring, setIsRecurring] = useState(false);
-  const [recurrencePattern, setRecurrencePattern] = useState('weekly');
-  const [recurrenceEnd, setRecurrenceEnd] = useState('');
+  const [appointmentStatus, setAppointmentStatus] = useState('scheduled');
 
   // Schedule config form
   const [configForm, setConfigForm] = useState({
-    work_start: '08:00',
-    work_end: '18:00',
-    break_start: '12:00',
-    break_end: '13:00',
-    slot_duration: 30,
-    monday_start: '08:00',
-    monday_end: '18:00',
-    tuesday_start: '08:00',
-    tuesday_end: '18:00',
-    wednesday_start: '08:00',
-    wednesday_end: '18:00',
-    thursday_start: '08:00',
-    thursday_end: '18:00',
-    friday_start: '08:00',
-    friday_end: '18:00',
+    monday_start: '',
+    monday_end: '',
+    tuesday_start: '',
+    tuesday_end: '',
+    wednesday_start: '',
+    wednesday_end: '',
+    thursday_start: '',
+    thursday_end: '',
+    friday_start: '',
+    friday_end: '',
     saturday_start: '',
     saturday_end: '',
     sunday_start: '',
-    sunday_end: ''
+    sunday_end: '',
+    slot_duration: 30,
+    break_start: '',
+    break_end: ''
   });
 
+  // Patient form
+  const [patientForm, setPatientForm] = useState({
+    name: '',
+    cpf: '',
+    phone: '',
+    birth_date: '',
+    notes: ''
+  });
+
+  // Get API URL
   const getApiUrl = () => {
     if (
       window.location.hostname === "cartaoquiroferreira.com.br" ||
@@ -177,12 +135,12 @@ const EnhancedAgendaPage: React.FC = () => {
     script.type = 'text/javascript';
     script.onload = () => {
       const publicKey = import.meta.env.VITE_MP_PUBLIC_KEY;
-      console.log('🔥 MercadoPago SDK v2 loaded for agenda, Public Key:', publicKey ? 'Found' : 'Missing');
+      console.log('🔥 MercadoPago SDK v2 loaded, Public Key:', publicKey ? 'Found' : 'Missing');
       
       if (publicKey && window.MercadoPago) {
         try {
           new window.MercadoPago(publicKey);
-          console.log('✅ MercadoPago SDK v2 initialized successfully for agenda');
+          console.log('✅ MercadoPago SDK v2 initialized successfully');
         } catch (error) {
           console.error('❌ Error initializing MercadoPago SDK v2:', error);
         }
@@ -210,13 +168,15 @@ const EnhancedAgendaPage: React.FC = () => {
     if (subscriptionStatus?.can_use_agenda) {
       fetchAppointments();
     }
-  }, [currentDate, viewMode, subscriptionStatus]);
+  }, [currentWeek, subscriptionStatus]);
 
   const fetchData = async () => {
     try {
       setIsLoading(true);
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
+
+      console.log('🔄 Fetching agenda data...');
 
       // Fetch subscription status
       const subscriptionResponse = await fetch(`${apiUrl}/api/agenda/subscription-status`, {
@@ -225,6 +185,7 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (subscriptionResponse.ok) {
         const subscriptionData = await subscriptionResponse.json();
+        console.log('✅ Subscription data:', subscriptionData);
         setSubscriptionStatus(subscriptionData);
 
         if (subscriptionData.can_use_agenda) {
@@ -235,28 +196,29 @@ const EnhancedAgendaPage: React.FC = () => {
 
           if (configResponse.ok) {
             const configData = await configResponse.json();
+            console.log('✅ Schedule config:', configData);
             setScheduleConfig(configData);
+            
+            // Update form with existing config
             if (configData) {
               setConfigForm({
-                work_start: configData.work_start || '08:00',
-                work_end: configData.work_end || '18:00',
-                break_start: configData.break_start || '12:00',
-                break_end: configData.break_end || '13:00',
-                slot_duration: configData.slot_duration || 30,
-                monday_start: configData.monday_start || '08:00',
-                monday_end: configData.monday_end || '18:00',
-                tuesday_start: configData.tuesday_start || '08:00',
-                tuesday_end: configData.tuesday_end || '18:00',
-                wednesday_start: configData.wednesday_start || '08:00',
-                wednesday_end: configData.wednesday_end || '18:00',
-                thursday_start: configData.thursday_start || '08:00',
-                thursday_end: configData.thursday_end || '18:00',
-                friday_start: configData.friday_start || '08:00',
-                friday_end: configData.friday_end || '18:00',
+                monday_start: configData.monday_start || '',
+                monday_end: configData.monday_end || '',
+                tuesday_start: configData.tuesday_start || '',
+                tuesday_end: configData.tuesday_end || '',
+                wednesday_start: configData.wednesday_start || '',
+                wednesday_end: configData.wednesday_end || '',
+                thursday_start: configData.thursday_start || '',
+                thursday_end: configData.thursday_end || '',
+                friday_start: configData.friday_start || '',
+                friday_end: configData.friday_end || '',
                 saturday_start: configData.saturday_start || '',
                 saturday_end: configData.saturday_end || '',
                 sunday_start: configData.sunday_start || '',
-                sunday_end: configData.sunday_end || ''
+                sunday_end: configData.sunday_end || '',
+                slot_duration: configData.slot_duration || 30,
+                break_start: configData.break_start || '',
+                break_end: configData.break_end || ''
               });
             }
           }
@@ -268,22 +230,13 @@ const EnhancedAgendaPage: React.FC = () => {
 
           if (patientsResponse.ok) {
             const patientsData = await patientsResponse.json();
+            console.log('✅ Patients data:', patientsData);
             setPatients(patientsData);
-          }
-
-          // Fetch locations
-          const locationsResponse = await fetch(`${apiUrl}/api/professional-locations`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-
-          if (locationsResponse.ok) {
-            const locationsData = await locationsResponse.json();
-            setLocations(locationsData);
           }
         }
       }
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('❌ Error fetching data:', error);
       setError('Erro ao carregar dados da agenda');
     } finally {
       setIsLoading(false);
@@ -295,22 +248,13 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      let startDate, endDate;
+      const startDate = startOfWeek(currentWeek, { weekStartsOn: 1 });
+      const endDate = endOfWeek(currentWeek, { weekStartsOn: 1 });
 
-      switch (viewMode) {
-        case 'month':
-          startDate = startOfMonth(currentDate);
-          endDate = endOfMonth(currentDate);
-          break;
-        case 'week':
-          startDate = startOfWeek(currentDate, { weekStartsOn: 1 });
-          endDate = endOfWeek(currentDate, { weekStartsOn: 1 });
-          break;
-        case 'day':
-          startDate = currentDate;
-          endDate = currentDate;
-          break;
-      }
+      console.log('🔄 Fetching appointments for week:', {
+        start: startDate.toISOString(),
+        end: endDate.toISOString()
+      });
 
       const response = await fetch(
         `${apiUrl}/api/agenda/appointments?start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`,
@@ -321,18 +265,72 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setAppointments(data);
         console.log('✅ Appointments fetched:', data);
+        setAppointments(data);
       } else {
-        console.error('❌ Error fetching appointments:', response.status);
+        console.error('❌ Failed to fetch appointments:', response.status);
       }
     } catch (error) {
-      console.error('Error fetching appointments:', error);
+      console.error('❌ Error fetching appointments:', error);
+    }
+  };
+
+  const handleSaveScheduleConfig = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const apiUrl = getApiUrl();
+
+      console.log('🔄 Saving schedule config:', configForm);
+
+      // Convert empty strings to null for time fields
+      const configToSave = {
+        ...configForm,
+        monday_start: configForm.monday_start || null,
+        monday_end: configForm.monday_end || null,
+        tuesday_start: configForm.tuesday_start || null,
+        tuesday_end: configForm.tuesday_end || null,
+        wednesday_start: configForm.wednesday_start || null,
+        wednesday_end: configForm.wednesday_end || null,
+        thursday_start: configForm.thursday_start || null,
+        thursday_end: configForm.thursday_end || null,
+        friday_start: configForm.friday_start || null,
+        friday_end: configForm.friday_end || null,
+        saturday_start: configForm.saturday_start || null,
+        saturday_end: configForm.saturday_end || null,
+        sunday_start: configForm.sunday_start || null,
+        sunday_end: configForm.sunday_end || null,
+        break_start: configForm.break_start || null,
+        break_end: configForm.break_end || null
+      };
+
+      const response = await fetch(`${apiUrl}/api/agenda/schedule-config`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(configToSave)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Schedule config saved:', data);
+        setScheduleConfig(data);
+        setSuccess('Configuração de horários salva com sucesso!');
+        setShowConfigModal(false);
+      } else {
+        const errorData = await response.json();
+        console.error('❌ Error saving config:', errorData);
+        setError(errorData.message || 'Erro ao salvar configuração');
+      }
+    } catch (error) {
+      console.error('❌ Error saving schedule config:', error);
+      setError('Erro ao salvar configuração');
     }
   };
 
   const handleCreateAppointment = async () => {
-    if (!selectedDate || !selectedTime || !selectedPatient || !selectedLocation) {
+    if (!selectedDate || !selectedTime || !selectedPatient) {
       setError('Preencha todos os campos obrigatórios');
       return;
     }
@@ -341,21 +339,16 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      const appointmentDate = new Date(selectedDate);
-      const [hours, minutes] = selectedTime.split(':');
-      appointmentDate.setHours(parseInt(hours), parseInt(minutes));
-
-      const appointmentData = {
+      // 🔥 CORREÇÃO: Criar data corretamente
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const appointmentDateTime = `${dateStr}T${selectedTime}:00`;
+      
+      console.log('🔄 Creating appointment:', {
         patient_id: parseInt(selectedPatient),
-        location_id: parseInt(selectedLocation),
-        date: appointmentDate.toISOString(),
-        notes: appointmentNotes,
-        is_recurring: isRecurring,
-        recurrence_pattern: isRecurring ? recurrencePattern : null,
-        recurrence_end: isRecurring && recurrenceEnd ? new Date(recurrenceEnd).toISOString() : null
-      };
-
-      console.log('🔄 Creating appointment:', appointmentData);
+        date: appointmentDateTime,
+        status: appointmentStatus,
+        notes: appointmentNotes
+      });
 
       const response = await fetch(`${apiUrl}/api/agenda/appointments`, {
         method: 'POST',
@@ -363,59 +356,47 @@ const EnhancedAgendaPage: React.FC = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(appointmentData)
+        body: JSON.stringify({
+          patient_id: parseInt(selectedPatient),
+          date: appointmentDateTime,
+          status: appointmentStatus,
+          notes: appointmentNotes
+        })
       });
 
       if (response.ok) {
-        const result = await response.json();
-        console.log('✅ Appointment created:', result);
-        setSuccess(isRecurring ? 'Agendamentos recorrentes criados com sucesso!' : 'Agendamento criado com sucesso!');
+        const newAppointment = await response.json();
+        console.log('✅ Appointment created:', newAppointment);
+        
+        setSuccess('Agendamento criado com sucesso!');
         setShowAppointmentModal(false);
-        resetAppointmentForm();
-        fetchAppointments();
+        
+        // Reset form
+        setSelectedDate(null);
+        setSelectedTime('');
+        setSelectedPatient('');
+        setAppointmentNotes('');
+        setAppointmentStatus('scheduled');
+        
+        // Refresh appointments
+        await fetchAppointments();
       } else {
         const errorData = await response.json();
         console.error('❌ Error creating appointment:', errorData);
         setError(errorData.message || 'Erro ao criar agendamento');
       }
     } catch (error) {
-      console.error('Error creating appointment:', error);
+      console.error('❌ Error creating appointment:', error);
       setError('Erro ao criar agendamento');
     }
   };
 
-  const handleSaveConfig = async () => {
+  const handleUpdateAppointment = async (appointmentId: number, updates: Partial<Appointment>) => {
     try {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      const response = await fetch(`${apiUrl}/api/agenda/schedule-config`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(configForm)
-      });
-
-      if (response.ok) {
-        setSuccess('Configuração salva com sucesso!');
-        setShowConfigModal(false);
-        fetchData();
-      } else {
-        const errorData = await response.json();
-        setError(errorData.message || 'Erro ao salvar configuração');
-      }
-    } catch (error) {
-      console.error('Error saving config:', error);
-      setError('Erro ao salvar configuração');
-    }
-  };
-
-  const handleUpdateAppointment = async (appointmentId: number, status: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      const apiUrl = getApiUrl();
+      console.log('🔄 Updating appointment:', appointmentId, updates);
 
       const response = await fetch(`${apiUrl}/api/agenda/appointments/${appointmentId}`, {
         method: 'PUT',
@@ -423,18 +404,20 @@ const EnhancedAgendaPage: React.FC = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ status })
+        body: JSON.stringify(updates)
       });
 
       if (response.ok) {
-        setSuccess('Status do agendamento atualizado!');
-        setShowViewModal(false);
-        fetchAppointments();
+        console.log('✅ Appointment updated');
+        setSuccess('Agendamento atualizado com sucesso!');
+        await fetchAppointments();
       } else {
-        setError('Erro ao atualizar agendamento');
+        const errorData = await response.json();
+        console.error('❌ Error updating appointment:', errorData);
+        setError(errorData.message || 'Erro ao atualizar agendamento');
       }
     } catch (error) {
-      console.error('Error updating appointment:', error);
+      console.error('❌ Error updating appointment:', error);
       setError('Erro ao atualizar agendamento');
     }
   };
@@ -446,21 +429,77 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
+      console.log('🔄 Deleting appointment:', appointmentId);
+
       const response = await fetch(`${apiUrl}/api/agenda/appointments/${appointmentId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (response.ok) {
+        console.log('✅ Appointment deleted');
         setSuccess('Agendamento excluído com sucesso!');
-        setShowViewModal(false);
-        fetchAppointments();
+        await fetchAppointments();
       } else {
-        setError('Erro ao excluir agendamento');
+        const errorData = await response.json();
+        console.error('❌ Error deleting appointment:', errorData);
+        setError(errorData.message || 'Erro ao excluir agendamento');
       }
     } catch (error) {
-      console.error('Error deleting appointment:', error);
+      console.error('❌ Error deleting appointment:', error);
       setError('Erro ao excluir agendamento');
+    }
+  };
+
+  const handleCreatePatient = async () => {
+    if (!patientForm.name || !patientForm.cpf) {
+      setError('Nome e CPF são obrigatórios');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const apiUrl = getApiUrl();
+
+      console.log('🔄 Creating patient:', patientForm);
+
+      const response = await fetch(`${apiUrl}/api/agenda/patients`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ...patientForm,
+          cpf: patientForm.cpf.replace(/\D/g, ''),
+          phone: patientForm.phone.replace(/\D/g, '')
+        })
+      });
+
+      if (response.ok) {
+        const newPatient = await response.json();
+        console.log('✅ Patient created:', newPatient);
+        
+        setPatients([...patients, newPatient]);
+        setSuccess('Paciente adicionado com sucesso!');
+        setShowPatientModal(false);
+        
+        // Reset form
+        setPatientForm({
+          name: '',
+          cpf: '',
+          phone: '',
+          birth_date: '',
+          notes: ''
+        });
+      } else {
+        const errorData = await response.json();
+        console.error('❌ Error creating patient:', errorData);
+        setError(errorData.message || 'Erro ao criar paciente');
+      }
+    } catch (error) {
+      console.error('❌ Error creating patient:', error);
+      setError('Erro ao criar paciente');
     }
   };
 
@@ -500,81 +539,40 @@ const EnhancedAgendaPage: React.FC = () => {
     }
   };
 
-  const resetAppointmentForm = () => {
-    setSelectedDate(null);
-    setSelectedTime('');
-    setSelectedPatient('');
-    setSelectedLocation('');
-    setAppointmentNotes('');
-    setIsRecurring(false);
-    setRecurrencePattern('weekly');
-    setRecurrenceEnd('');
-  };
-
   const generateTimeSlots = (startTime: string | null, endTime: string | null, duration: number = 30) => {
     if (!startTime || !endTime) return [];
 
     const slots = [];
     const start = new Date(`2000-01-01T${startTime}`);
     const end = new Date(`2000-01-01T${endTime}`);
-    const breakStart = scheduleConfig?.break_start ? new Date(`2000-01-01T${scheduleConfig.break_start}`) : null;
-    const breakEnd = scheduleConfig?.break_end ? new Date(`2000-01-01T${scheduleConfig.break_end}`) : null;
 
     while (start < end) {
-      const currentTime = format(start, 'HH:mm');
-      
-      // Skip break time
-      if (breakStart && breakEnd && start >= breakStart && start < breakEnd) {
-        start.setMinutes(start.getMinutes() + duration);
-        continue;
-      }
-
-      slots.push(currentTime);
+      slots.push(format(start, 'HH:mm'));
       start.setMinutes(start.getMinutes() + duration);
     }
 
     return slots;
   };
 
-  const getDateRange = () => {
-    switch (viewMode) {
-      case 'month':
-        return eachDayOfInterval({
-          start: startOfMonth(currentDate),
-          end: endOfMonth(currentDate)
-        });
-      case 'week':
-        const start = startOfWeek(currentDate, { weekStartsOn: 1 });
-        const days = [];
-        for (let i = 0; i < 7; i++) {
-          days.push(addDays(start, i));
-        }
-        return days;
-      case 'day':
-        return [currentDate];
-      default:
-        return [];
+  const getWeekDays = () => {
+    const start = startOfWeek(currentWeek, { weekStartsOn: 1 });
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      days.push(addDays(start, i));
     }
+    return days;
   };
 
   const getAppointmentsForDate = (date: Date) => {
-    return appointments.filter(appointment => 
-      isSameDay(parseISO(appointment.date), date)
-    );
-  };
-
-  const navigateDate = (direction: 'prev' | 'next') => {
-    switch (viewMode) {
-      case 'month':
-        setCurrentDate(direction === 'next' ? addMonths(currentDate, 1) : subMonths(currentDate, 1));
-        break;
-      case 'week':
-        setCurrentDate(direction === 'next' ? addWeeks(currentDate, 1) : subWeeks(currentDate, 1));
-        break;
-      case 'day':
-        setCurrentDate(direction === 'next' ? addDays(currentDate, 1) : addDays(currentDate, -1));
-        break;
-    }
+    return appointments.filter(appointment => {
+      try {
+        const appointmentDate = parseISO(appointment.date);
+        return isValid(appointmentDate) && isSameDay(appointmentDate, date);
+      } catch (error) {
+        console.error('Error parsing appointment date:', appointment.date, error);
+        return false;
+      }
+    });
   };
 
   const getStatusColor = (status: string) => {
@@ -599,25 +597,30 @@ const EnhancedAgendaPage: React.FC = () => {
     }
   };
 
-  // 🔥 Safe date formatting function
-  const safeFormatDate = (date: Date | string, formatStr: string) => {
+  const formatTime = (dateString: string) => {
     try {
-      const dateObj = typeof date === 'string' ? new Date(date) : date;
-      if (!isValid(dateObj)) {
-        console.warn('Invalid date provided to safeFormatDate:', date);
-        return 'Data inválida';
-      }
-      return format(dateObj, formatStr, { locale: ptBR });
+      const date = parseISO(dateString);
+      return isValid(date) ? format(date, 'HH:mm') : '';
     } catch (error) {
-      console.error('Error formatting date:', error, date);
-      return 'Data inválida';
+      console.error('Error formatting time:', dateString, error);
+      return '';
     }
   };
 
-  // 🔥 Clear messages after 3 seconds
+  const formatDate = (dateString: string) => {
+    try {
+      const date = parseISO(dateString);
+      return isValid(date) ? format(date, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }) : dateString;
+    } catch (error) {
+      console.error('Error formatting date:', dateString, error);
+      return dateString;
+    }
+  };
+
+  // Clear messages after 5 seconds
   useEffect(() => {
     if (success) {
-      const timer = setTimeout(() => setSuccess(''), 3000);
+      const timer = setTimeout(() => setSuccess(''), 5000);
       return () => clearTimeout(timer);
     }
   }, [success]);
@@ -668,19 +671,7 @@ const EnhancedAgendaPage: React.FC = () => {
             <ul className="space-y-3">
               <li className="flex items-center">
                 <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
-                <span>Visualização por mês, semana e dia</span>
-              </li>
-              <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
-                <span>Múltiplos locais de atendimento</span>
-              </li>
-              <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
-                <span>Agendamentos recorrentes</span>
-              </li>
-              <li className="flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
-                <span>Horário de intervalo configurável</span>
+                <span>Agenda semanal personalizada</span>
               </li>
               <li className="flex items-center">
                 <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
@@ -688,7 +679,19 @@ const EnhancedAgendaPage: React.FC = () => {
               </li>
               <li className="flex items-center">
                 <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
+                <span>Prontuários eletrônicos</span>
+              </li>
+              <li className="flex items-center">
+                <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
                 <span>Confirmação via WhatsApp</span>
+              </li>
+              <li className="flex items-center">
+                <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
+                <span>Relatórios de atendimento</span>
+              </li>
+              <li className="flex items-center">
+                <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
+                <span>Bloqueio de horários</span>
               </li>
               <li className="flex items-center">
                 <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
@@ -736,6 +739,20 @@ const EnhancedAgendaPage: React.FC = () => {
             </div>
           </div>
         )}
+
+        {subscriptionStatus && subscriptionStatus.status === 'expired' && (
+          <div className="bg-red-50 border-l-4 border-red-400 p-4">
+            <div className="flex items-center">
+              <XCircle className="h-5 w-5 text-red-600 mr-2" />
+              <p className="text-red-700">
+                Sua assinatura expirou em {subscriptionStatus.expires_at ? 
+                  format(parseISO(subscriptionStatus.expires_at), "dd 'de' MMMM 'de' yyyy", { locale: ptBR }) : 
+                  'data não disponível'
+                }. Renove para continuar usando a agenda.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -763,7 +780,15 @@ const EnhancedAgendaPage: React.FC = () => {
             className="btn btn-outline flex items-center"
           >
             <Settings className="h-5 w-5 mr-2" />
-            Configurar
+            Configurar Horários
+          </button>
+
+          <button
+            onClick={() => setShowPatientModal(true)}
+            className="btn btn-secondary flex items-center"
+          >
+            <Users className="h-5 w-5 mr-2" />
+            Novo Paciente
           </button>
 
           <button
@@ -776,196 +801,88 @@ const EnhancedAgendaPage: React.FC = () => {
         </div>
       </div>
 
-      {/* View Mode Selector */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setViewMode('month')}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              viewMode === 'month' 
-                ? 'bg-red-600 text-white' 
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Mês
-          </button>
-          <button
-            onClick={() => setViewMode('week')}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              viewMode === 'week' 
-                ? 'bg-red-600 text-white' 
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Semana
-          </button>
-          <button
-            onClick={() => setViewMode('day')}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              viewMode === 'day' 
-                ? 'bg-red-600 text-white' 
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Dia
-          </button>
-        </div>
-
-        <div className="flex items-center space-x-4">
-          <button
-            onClick={() => navigateDate('prev')}
-            className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </button>
-
-          <h2 className="text-xl font-semibold min-w-[200px] text-center">
-            {viewMode === 'month' && safeFormatDate(currentDate, "MMMM 'de' yyyy")}
-            {viewMode === 'week' && (
-              <>
-                {safeFormatDate(startOfWeek(currentDate, { weekStartsOn: 1 }), "dd 'de' MMM")} - {' '}
-                {safeFormatDate(endOfWeek(currentDate, { weekStartsOn: 1 }), "dd 'de' MMM 'de' yyyy")}
-              </>
-            )}
-            {viewMode === 'day' && safeFormatDate(currentDate, "dd 'de' MMMM 'de' yyyy")}
-          </h2>
-
-          <button
-            onClick={() => navigateDate('next')}
-            className="p-2 text-gray-600 hover:text-gray-800 transition-colors"
-          >
-            <ChevronRight className="h-6 w-6" />
-          </button>
-        </div>
-
+      {/* Week Navigation */}
+      <div className="flex justify-between items-center mb-6">
         <button
-          onClick={() => setCurrentDate(new Date())}
+          onClick={() => setCurrentWeek(addDays(currentWeek, -7))}
           className="btn btn-outline"
         >
-          Hoje
+          ← Semana Anterior
+        </button>
+
+        <h2 className="text-xl font-semibold">
+          {format(startOfWeek(currentWeek, { weekStartsOn: 1 }), "dd 'de' MMMM", { locale: ptBR })} - {' '}
+          {format(endOfWeek(currentWeek, { weekStartsOn: 1 }), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+        </h2>
+
+        <button
+          onClick={() => setCurrentWeek(addDays(currentWeek, 7))}
+          className="btn btn-outline"
+        >
+          Próxima Semana →
         </button>
       </div>
 
-      {/* Calendar View */}
+      {/* Calendar Grid */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        {viewMode === 'month' && (
-          <div className="grid grid-cols-7 gap-px bg-gray-200">
-            {/* Header */}
-            {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((day) => (
-              <div key={day} className="bg-gray-50 p-4 text-center font-medium text-gray-700">
-                {day}
+        <div className="grid grid-cols-8 border-b border-gray-200">
+          <div className="p-4 bg-gray-50 font-medium text-gray-700">Horário</div>
+          {getWeekDays().map((day, index) => (
+            <div key={index} className="p-4 bg-gray-50 text-center">
+              <div className="font-medium text-gray-700">
+                {format(day, 'EEEE', { locale: ptBR })}
               </div>
-            ))}
-            
-            {/* Days */}
-            {getDateRange().map((date, index) => {
-              const dayAppointments = getAppointmentsForDate(date);
-              const isCurrentMonth = isSameMonth(date, currentDate);
-              const isCurrentDay = isToday(date);
-              
-              return (
-                <div
-                  key={index}
-                  className={`bg-white p-2 min-h-[120px] ${
-                    !isCurrentMonth ? 'text-gray-400' : ''
-                  } ${isCurrentDay ? 'bg-red-50' : ''}`}
-                >
-                  <div className={`text-sm font-medium mb-2 ${
-                    isCurrentDay ? 'text-red-600' : 'text-gray-900'
-                  }`}>
-                    {format(date, 'd')}
-                  </div>
-                  
-                  <div className="space-y-1">
-                    {dayAppointments.slice(0, 3).map((appointment) => (
+              <div className="text-sm text-gray-500">
+                {format(day, 'dd/MM')}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Time slots */}
+        <div className="max-h-96 overflow-y-auto">
+          {scheduleConfig && generateTimeSlots('08:00', '18:00', scheduleConfig.slot_duration).map((timeSlot) => (
+            <div key={timeSlot} className="grid grid-cols-8 border-b border-gray-100">
+              <div className="p-3 bg-gray-50 text-sm font-medium text-gray-600 border-r border-gray-200">
+                {timeSlot}
+              </div>
+              {getWeekDays().map((day, dayIndex) => {
+                const dayAppointments = getAppointmentsForDate(day).filter(apt => 
+                  formatTime(apt.date) === timeSlot
+                );
+
+                return (
+                  <div key={dayIndex} className="p-2 border-r border-gray-100 min-h-[60px]">
+                    {dayAppointments.map((appointment) => (
                       <div
                         key={appointment.id}
-                        className={`text-xs p-1 rounded cursor-pointer hover:opacity-80 ${getStatusColor(appointment.status)}`}
+                        className={`p-2 rounded text-xs ${getStatusColor(appointment.status)} mb-1 cursor-pointer hover:opacity-80`}
                         onClick={() => {
                           setSelectedAppointment(appointment);
                           setShowViewModal(true);
                         }}
                       >
-                        <div className="font-medium truncate">{appointment.patient_name}</div>
-                        <div className="truncate">{safeFormatDate(appointment.date, 'HH:mm')}</div>
+                        <div className="font-medium">{appointment.patient_name}</div>
+                        <div>{getStatusText(appointment.status)}</div>
+                        {appointment.patient_phone && (
+                          <a
+                            href={`https://wa.me/55${appointment.patient_phone.replace(/\D/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-green-600 hover:text-green-800 text-xs"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            WhatsApp
+                          </a>
+                        )}
                       </div>
                     ))}
-                    {dayAppointments.length > 3 && (
-                      <div className="text-xs text-gray-500">
-                        +{dayAppointments.length - 3} mais
-                      </div>
-                    )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {viewMode === 'week' && (
-          <div className="grid grid-cols-8 border-b border-gray-200">
-            <div className="p-4 bg-gray-50 font-medium text-gray-700">Horário</div>
-            {getDateRange().map((day, index) => (
-              <div key={index} className="p-4 bg-gray-50 text-center">
-                <div className="font-medium text-gray-700">
-                  {safeFormatDate(day, 'EEEE')}
-                </div>
-                <div className={`text-sm ${isToday(day) ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
-                  {safeFormatDate(day, 'dd/MM')}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {(viewMode === 'week' || viewMode === 'day') && (
-          <div className="max-h-96 overflow-y-auto">
-            {scheduleConfig && generateTimeSlots(
-              scheduleConfig.work_start, 
-              scheduleConfig.work_end, 
-              scheduleConfig.slot_duration
-            ).map((timeSlot) => (
-              <div key={timeSlot} className={`grid ${viewMode === 'week' ? 'grid-cols-8' : 'grid-cols-2'} border-b border-gray-100`}>
-                <div className="p-3 bg-gray-50 text-sm font-medium text-gray-600 border-r border-gray-200">
-                  {timeSlot}
-                </div>
-                {getDateRange().map((day, dayIndex) => {
-                  const dayAppointments = getAppointmentsForDate(day).filter(apt => 
-                    safeFormatDate(apt.date, 'HH:mm') === timeSlot
-                  );
-
-                  return (
-                    <div key={dayIndex} className="p-2 border-r border-gray-100 min-h-[60px]">
-                      {dayAppointments.map((appointment) => (
-                        <div
-                          key={appointment.id}
-                          className={`p-2 rounded text-xs ${getStatusColor(appointment.status)} mb-1 cursor-pointer hover:opacity-80`}
-                          onClick={() => {
-                            setSelectedAppointment(appointment);
-                            setShowViewModal(true);
-                          }}
-                        >
-                          <div className="font-medium">{appointment.patient_name}</div>
-                          <div className="flex items-center">
-                            <MapPin className="h-3 w-3 mr-1" />
-                            <span className="truncate">{appointment.location_name}</span>
-                          </div>
-                          <div>{getStatusText(appointment.status)}</div>
-                          {appointment.is_recurring && (
-                            <div className="flex items-center mt-1">
-                              <Repeat className="h-3 w-3 mr-1" />
-                              <span>Recorrente</span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Success/Error Messages */}
@@ -981,104 +898,106 @@ const EnhancedAgendaPage: React.FC = () => {
         </div>
       )}
 
-      {/* View Appointment Modal */}
-      {showViewModal && selectedAppointment && (
+      {/* Schedule Config Modal */}
+      {showConfigModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md">
+          <div className="bg-white rounded-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold">Detalhes do Agendamento</h3>
-                <button
-                  onClick={() => setShowViewModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <XCircle className="h-6 w-6" />
-                </button>
+              <h3 className="text-lg font-semibold mb-4">Configurar Horários de Atendimento</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => {
+                  const dayNames = {
+                    monday: 'Segunda-feira',
+                    tuesday: 'Terça-feira',
+                    wednesday: 'Quarta-feira',
+                    thursday: 'Quinta-feira',
+                    friday: 'Sexta-feira',
+                    saturday: 'Sábado',
+                    sunday: 'Domingo'
+                  };
+
+                  return (
+                    <div key={day} className="border border-gray-200 rounded-lg p-4">
+                      <h4 className="font-medium mb-3">{dayNames[day as keyof typeof dayNames]}</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">Início</label>
+                          <input
+                            type="time"
+                            value={configForm[`${day}_start` as keyof typeof configForm] as string}
+                            onChange={(e) => setConfigForm({
+                              ...configForm,
+                              [`${day}_start`]: e.target.value
+                            })}
+                            className="input"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">Fim</label>
+                          <input
+                            type="time"
+                            value={configForm[`${day}_end` as keyof typeof configForm] as string}
+                            onChange={(e) => setConfigForm({
+                              ...configForm,
+                              [`${day}_end`]: e.target.value
+                            })}
+                            className="input"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
-              <div className="space-y-4">
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Paciente</label>
-                  <p className="text-gray-900">{selectedAppointment.patient_name}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Data e Hora</label>
-                  <p className="text-gray-900">{safeFormatDate(selectedAppointment.date, "dd/MM/yyyy 'às' HH:mm")}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Local</label>
-                  <p className="text-gray-900">{selectedAppointment.location_name}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Status</label>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedAppointment.status)}`}>
-                    {getStatusText(selectedAppointment.status)}
-                  </span>
-                </div>
-
-                {selectedAppointment.notes && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Observações</label>
-                    <p className="text-gray-900">{selectedAppointment.notes}</p>
-                  </div>
-                )}
-
-                {selectedAppointment.patient_phone && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Contato</label>
-                    <a
-                      href={`https://wa.me/55${selectedAppointment.patient_phone.replace(/\D/g, '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-green-600 hover:text-green-800"
-                    >
-                      WhatsApp: {selectedAppointment.patient_phone}
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex justify-between mt-6">
-                <div className="flex space-x-2">
-                  {selectedAppointment.status === 'scheduled' && (
-                    <button
-                      onClick={() => handleUpdateAppointment(selectedAppointment.id, 'confirmed')}
-                      className="btn btn-primary text-sm"
-                    >
-                      Confirmar
-                    </button>
-                  )}
-                  {selectedAppointment.status === 'confirmed' && (
-                    <button
-                      onClick={() => handleUpdateAppointment(selectedAppointment.id, 'in_progress')}
-                      className="btn btn-primary text-sm"
-                    >
-                      Iniciar
-                    </button>
-                  )}
-                  {selectedAppointment.status === 'in_progress' && (
-                    <button
-                      onClick={() => handleUpdateAppointment(selectedAppointment.id, 'completed')}
-                      className="btn btn-primary text-sm"
-                    >
-                      Finalizar
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleDeleteAppointment(selectedAppointment.id)}
-                    className="btn bg-red-600 text-white hover:bg-red-700 text-sm flex items-center"
+                  <label className="block text-sm text-gray-600 mb-1">Duração do Slot (minutos)</label>
+                  <select
+                    value={configForm.slot_duration}
+                    onChange={(e) => setConfigForm({...configForm, slot_duration: parseInt(e.target.value)})}
+                    className="input"
                   >
-                    <Trash2 className="h-4 w-4 mr-1" />
-                    Excluir
-                  </button>
+                    <option value={15}>15 minutos</option>
+                    <option value={30}>30 minutos</option>
+                    <option value={45}>45 minutos</option>
+                    <option value={60}>60 minutos</option>
+                  </select>
                 </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Início do Intervalo</label>
+                  <input
+                    type="time"
+                    value={configForm.break_start}
+                    onChange={(e) => setConfigForm({...configForm, break_start: e.target.value})}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Fim do Intervalo</label>
+                  <input
+                    type="time"
+                    value={configForm.break_end}
+                    onChange={(e) => setConfigForm({...configForm, break_end: e.target.value})}
+                    className="input"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  onClick={() => setShowConfigModal(false)}
+                  className="btn btn-secondary"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveScheduleConfig}
+                  className="btn btn-primary"
+                >
+                  Salvar Configuração
+                </button>
               </div>
             </div>
           </div>
@@ -1087,328 +1006,304 @@ const EnhancedAgendaPage: React.FC = () => {
 
       {/* Appointment Modal */}
       {showAppointmentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-semibold">Novo Agendamento</h3>
-                <button
-                  onClick={() => setShowAppointmentModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <XCircle className="h-6 w-6" />
-                </button>
-              </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Data
-                  </label>
-                  <input
-                    type="date"
-                    value={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value) {
-                        try {
-                          const newDate = new Date(value + 'T00:00:00');
-                          if (isValid(newDate)) {
-                            setSelectedDate(newDate);
-                          }
-                        } catch (error) {
-                          console.error('Error setting date:', error);
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Novo Agendamento</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Data
+                </label>
+                <input
+                  type="date"
+                  value={selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      try {
+                        const date = new Date(e.target.value + 'T00:00:00');
+                        if (isValid(date)) {
+                          setSelectedDate(date);
                         }
-                      } else {
-                        setSelectedDate(null);
+                      } catch (error) {
+                        console.error('Error setting date:', error);
                       }
-                    }}
-                    className="input"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Horário
-                  </label>
-                  <select
-                    value={selectedTime}
-                    onChange={(e) => setSelectedTime(e.target.value)}
-                    className="input"
-                  >
-                    <option value="">Selecione um horário</option>
-                    {scheduleConfig && generateTimeSlots(
-                      scheduleConfig.work_start, 
-                      scheduleConfig.work_end, 
-                      scheduleConfig.slot_duration
-                    ).map((time) => (
-                      <option key={time} value={time}>{time}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Paciente
-                  </label>
-                  <select
-                    value={selectedPatient}
-                    onChange={(e) => setSelectedPatient(e.target.value)}
-                    className="input"
-                  >
-                    <option value="">Selecione um paciente</option>
-                    {patients.map((patient) => (
-                      <option key={patient.id} value={patient.id}>
-                        {patient.name} {patient.is_convenio_patient ? '(Convênio)' : '(Particular)'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Local de Atendimento
-                  </label>
-                  <select
-                    value={selectedLocation}
-                    onChange={(e) => setSelectedLocation(e.target.value)}
-                    className="input"
-                  >
-                    <option value="">Selecione um local</option>
-                    {locations.map((location) => (
-                      <option key={location.id} value={location.id}>
-                        {location.clinic_name} {location.is_main ? '(Principal)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={isRecurring}
-                      onChange={(e) => setIsRecurring(e.target.checked)}
-                      className="rounded border-gray-300 text-red-600 shadow-sm focus:border-red-300 focus:ring focus:ring-red-200 focus:ring-opacity-50"
-                    />
-                    <span className="ml-2 text-sm text-gray-600">
-                      Agendamento recorrente
-                    </span>
-                  </label>
-                </div>
-
-                {isRecurring && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Padrão de Recorrência
-                      </label>
-                      <select
-                        value={recurrencePattern}
-                        onChange={(e) => setRecurrencePattern(e.target.value)}
-                        className="input"
-                      >
-                        <option value="weekly">Semanal</option>
-                        <option value="biweekly">Quinzenal</option>
-                        <option value="monthly">Mensal</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Data Final da Recorrência
-                      </label>
-                      <input
-                        type="date"
-                        value={recurrenceEnd}
-                        onChange={(e) => setRecurrenceEnd(e.target.value)}
-                        className="input"
-                      />
-                    </div>
-                  </>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Observações
-                  </label>
-                  <textarea
-                    value={appointmentNotes}
-                    onChange={(e) => setAppointmentNotes(e.target.value)}
-                    className="input min-h-[80px]"
-                    placeholder="Observações sobre o agendamento..."
-                  />
-                </div>
+                    } else {
+                      setSelectedDate(null);
+                    }
+                  }}
+                  className="input"
+                />
               </div>
 
-              <div className="flex justify-end space-x-3 mt-6">
-                <button
-                  onClick={() => setShowAppointmentModal(false)}
-                  className="btn btn-secondary"
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Horário
+                </label>
+                <select
+                  value={selectedTime}
+                  onChange={(e) => setSelectedTime(e.target.value)}
+                  className="input"
                 >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleCreateAppointment}
-                  className="btn btn-primary"
-                >
-                  Agendar
-                </button>
+                  <option value="">Selecione um horário</option>
+                  {generateTimeSlots('08:00', '18:00', 30).map((time) => (
+                    <option key={time} value={time}>{time}</option>
+                  ))}
+                </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Paciente
+                </label>
+                <select
+                  value={selectedPatient}
+                  onChange={(e) => setSelectedPatient(e.target.value)}
+                  className="input"
+                >
+                  <option value="">Selecione um paciente</option>
+                  {patients.map((patient) => (
+                    <option key={patient.id} value={patient.id}>
+                      {patient.name} {patient.is_convenio_patient ? '(Convênio)' : '(Particular)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Status
+                </label>
+                <select
+                  value={appointmentStatus}
+                  onChange={(e) => setAppointmentStatus(e.target.value)}
+                  className="input"
+                >
+                  <option value="scheduled">Agendado</option>
+                  <option value="confirmed">Confirmado</option>
+                  <option value="in_progress">Em Atendimento</option>
+                  <option value="completed">Finalizado</option>
+                  <option value="cancelled">Cancelado</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Observações
+                </label>
+                <textarea
+                  value={appointmentNotes}
+                  onChange={(e) => setAppointmentNotes(e.target.value)}
+                  className="input min-h-[80px]"
+                  placeholder="Observações sobre o agendamento..."
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowAppointmentModal(false)}
+                className="btn btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateAppointment}
+                className="btn btn-primary"
+              >
+                Agendar
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Config Modal */}
-      {showConfigModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-semibold">Configurar Horários</h3>
-                <button
-                  onClick={() => setShowConfigModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <XCircle className="h-6 w-6" />
-                </button>
+      {/* Patient Modal */}
+      {showPatientModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Novo Paciente Particular</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nome *
+                </label>
+                <input
+                  type="text"
+                  value={patientForm.name}
+                  onChange={(e) => setPatientForm({...patientForm, name: e.target.value})}
+                  className="input"
+                  placeholder="Nome completo"
+                />
               </div>
 
-              <div className="space-y-6">
-                {/* General Settings */}
-                <div>
-                  <h4 className="text-md font-medium mb-4">Configurações Gerais</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Início do Expediente
-                      </label>
-                      <input
-                        type="time"
-                        value={configForm.work_start}
-                        onChange={(e) => setConfigForm({...configForm, work_start: e.target.value})}
-                        className="input"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Fim do Expediente
-                      </label>
-                      <input
-                        type="time"
-                        value={configForm.work_end}
-                        onChange={(e) => setConfigForm({...configForm, work_end: e.target.value})}
-                        className="input"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Duração da Consulta (min)
-                      </label>
-                      <select
-                        value={configForm.slot_duration}
-                        onChange={(e) => setConfigForm({...configForm, slot_duration: parseInt(e.target.value)})}
-                        className="input"
-                      >
-                        <option value={15}>15 minutos</option>
-                        <option value={30}>30 minutos</option>
-                        <option value={45}>45 minutos</option>
-                        <option value={60}>60 minutos</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Break Time */}
-                <div>
-                  <h4 className="text-md font-medium mb-4">Horário de Intervalo</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Início do Intervalo
-                      </label>
-                      <input
-                        type="time"
-                        value={configForm.break_start}
-                        onChange={(e) => setConfigForm({...configForm, break_start: e.target.value})}
-                        className="input"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Fim do Intervalo
-                      </label>
-                      <input
-                        type="time"
-                        value={configForm.break_end}
-                        onChange={(e) => setConfigForm({...configForm, break_end: e.target.value})}
-                        className="input"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Weekly Schedule */}
-                <div>
-                  <h4 className="text-md font-medium mb-4">Horários por Dia da Semana</h4>
-                  <p className="text-sm text-gray-600 mb-4">Deixe em branco os dias que não trabalha</p>
-                  <div className="space-y-4">
-                    {[
-                      { key: 'monday', label: 'Segunda-feira' },
-                      { key: 'tuesday', label: 'Terça-feira' },
-                      { key: 'wednesday', label: 'Quarta-feira' },
-                      { key: 'thursday', label: 'Quinta-feira' },
-                      { key: 'friday', label: 'Sexta-feira' },
-                      { key: 'saturday', label: 'Sábado' },
-                      { key: 'sunday', label: 'Domingo' }
-                    ].map(({ key, label }) => (
-                      <div key={key} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-                        <div className="font-medium text-gray-700">{label}</div>
-                        <div>
-                          <input
-                            type="time"
-                            value={configForm[`${key}_start` as keyof typeof configForm] as string}
-                            onChange={(e) => setConfigForm({
-                              ...configForm, 
-                              [`${key}_start`]: e.target.value
-                            })}
-                            className="input"
-                            placeholder="Início"
-                          />
-                        </div>
-                        <div>
-                          <input
-                            type="time"
-                            value={configForm[`${key}_end` as keyof typeof configForm] as string}
-                            onChange={(e) => setConfigForm({
-                              ...configForm, 
-                              [`${key}_end`]: e.target.value
-                            })}
-                            className="input"
-                            placeholder="Fim"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  CPF *
+                </label>
+                <input
+                  type="text"
+                  value={patientForm.cpf}
+                  onChange={(e) => setPatientForm({...patientForm, cpf: e.target.value})}
+                  className="input"
+                  placeholder="000.000.000-00"
+                />
               </div>
 
-              <div className="flex justify-end space-x-3 mt-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Telefone
+                </label>
+                <input
+                  type="text"
+                  value={patientForm.phone}
+                  onChange={(e) => setPatientForm({...patientForm, phone: e.target.value})}
+                  className="input"
+                  placeholder="(00) 00000-0000"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Data de Nascimento
+                </label>
+                <input
+                  type="date"
+                  value={patientForm.birth_date}
+                  onChange={(e) => setPatientForm({...patientForm, birth_date: e.target.value})}
+                  className="input"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Observações
+                </label>
+                <textarea
+                  value={patientForm.notes}
+                  onChange={(e) => setPatientForm({...patientForm, notes: e.target.value})}
+                  className="input min-h-[80px]"
+                  placeholder="Observações sobre o paciente..."
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowPatientModal(false)}
+                className="btn btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreatePatient}
+                className="btn btn-primary"
+              >
+                Adicionar Paciente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Appointment Modal */}
+      {showViewModal && selectedAppointment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Detalhes do Agendamento</h3>
+              <div className="flex space-x-2">
                 <button
-                  onClick={() => setShowConfigModal(false)}
-                  className="btn btn-secondary"
+                  onClick={() => {
+                    // Edit appointment
+                    setSelectedDate(new Date(selectedAppointment.date));
+                    setSelectedTime(formatTime(selectedAppointment.date));
+                    setSelectedPatient(selectedAppointment.patient_id.toString());
+                    setAppointmentNotes(selectedAppointment.notes || '');
+                    setAppointmentStatus(selectedAppointment.status);
+                    setShowViewModal(false);
+                    setShowAppointmentModal(true);
+                  }}
+                  className="text-blue-600 hover:text-blue-800"
+                  title="Editar"
                 >
-                  Cancelar
+                  <Edit className="h-5 w-5" />
                 </button>
                 <button
-                  onClick={handleSaveConfig}
-                  className="btn btn-primary"
+                  onClick={() => {
+                    setShowViewModal(false);
+                    handleDeleteAppointment(selectedAppointment.id);
+                  }}
+                  className="text-red-600 hover:text-red-800"
+                  title="Excluir"
                 >
-                  Salvar Configuração
+                  <Trash2 className="h-5 w-5" />
                 </button>
               </div>
+            </div>
+            
+            <div className="space-y-3">
+              <div>
+                <span className="font-medium">Paciente:</span> {selectedAppointment.patient_name}
+              </div>
+              <div>
+                <span className="font-medium">Data:</span> {formatDate(selectedAppointment.date)}
+              </div>
+              <div>
+                <span className="font-medium">Status:</span>{' '}
+                <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(selectedAppointment.status)}`}>
+                  {getStatusText(selectedAppointment.status)}
+                </span>
+              </div>
+              {selectedAppointment.notes && (
+                <div>
+                  <span className="font-medium">Observações:</span>
+                  <p className="mt-1 text-gray-600">{selectedAppointment.notes}</p>
+                </div>
+              )}
+              {selectedAppointment.patient_phone && (
+                <div>
+                  <span className="font-medium">Telefone:</span> {selectedAppointment.patient_phone}
+                  <a
+                    href={`https://wa.me/55${selectedAppointment.patient_phone.replace(/\D/g, '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-2 text-green-600 hover:text-green-800"
+                  >
+                    WhatsApp
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Alterar Status
+              </label>
+              <select
+                value={selectedAppointment.status}
+                onChange={(e) => {
+                  handleUpdateAppointment(selectedAppointment.id, { status: e.target.value });
+                  setSelectedAppointment({...selectedAppointment, status: e.target.value});
+                }}
+                className="input"
+              >
+                <option value="scheduled">Agendado</option>
+                <option value="confirmed">Confirmado</option>
+                <option value="in_progress">Em Atendimento</option>
+                <option value="completed">Finalizado</option>
+                <option value="cancelled">Cancelado</option>
+              </select>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="btn btn-secondary"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>
