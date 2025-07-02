@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { CreditCard, AlertCircle, CheckCircle, ExternalLink } from "lucide-react";
 
-// 🔥 MERCADO PAGO SDK V2 DECLARATION
+// MercadoPago SDK v2 declaration
 declare global {
   interface Window {
     MercadoPago: any;
@@ -29,7 +29,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({ amount }) => {
     return "http://localhost:3001";
   };
 
-  // 🔥 LOAD MERCADO PAGO SDK V2
+  // Load MercadoPago SDK v2
   useEffect(() => {
     const script = document.createElement("script");
     script.src = "https://sdk.mercadopago.com/js/v2";
@@ -61,7 +61,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({ amount }) => {
     };
   }, []);
 
-  // 🔥 HANDLE PAYMENT WITH SDK V2
+  // Handle payment with SDK v2
   const handlePayment = async () => {
     try {
       setIsLoading(true);
@@ -103,7 +103,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({ amount }) => {
 
       setSuccess("Redirecionando para o pagamento...");
 
-      // 🔥 REDIRECT TO MERCADOPAGO WITH SDK V2
+      // Redirect to MercadoPago with SDK v2
       setTimeout(() => {
         window.open(data.init_point, '_blank');
       }, 1000);

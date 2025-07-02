@@ -3,7 +3,7 @@ import { CreditCard, Calendar, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-// 🔥 MERCADO PAGO SDK V2 DECLARATION
+// MercadoPago SDK v2 declaration
 declare global {
   interface Window {
     MercadoPago: any;
@@ -35,7 +35,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({
     return 'http://localhost:3001';
   };
   
-  // 🔥 LOAD MERCADO PAGO SDK V2
+  // Load MercadoPago SDK v2
   useEffect(() => {
     const script = document.createElement('script');
     script.src = 'https://sdk.mercadopago.com/js/v2';
@@ -92,7 +92,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({
     fetchDependents();
   }, [userId]);
   
-  // 🔥 HANDLE PAYMENT WITH SDK V2
+  // Handle payment with SDK v2
   const handlePayment = async () => {
     try {
       setIsLoading(true);
@@ -123,7 +123,7 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({
       const data = await response.json();
       console.log('✅ Client payment preference created with SDK v2:', data);
       
-      // 🔥 REDIRECT TO MERCADOPAGO WITH SDK V2
+      // Redirect to MercadoPago with SDK v2
       window.location.href = data.init_point;
     } catch (error) {
       console.error('❌ Client payment error:', error);

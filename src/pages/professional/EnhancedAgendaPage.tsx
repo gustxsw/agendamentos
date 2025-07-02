@@ -128,21 +128,21 @@ const EnhancedAgendaPage: React.FC = () => {
     script.type = 'text/javascript';
     script.onload = () => {
       const publicKey = import.meta.env.VITE_MP_PUBLIC_KEY;
-      console.log('MercadoPago SDK loaded, Public Key:', publicKey ? 'Found' : 'Missing');
+      console.log('🔥 MercadoPago SDK v2 loaded, Public Key:', publicKey ? 'Found' : 'Missing');
       
-      if (publicKey && (window as any).MercadoPago) {
+      if (publicKey && window.MercadoPago) {
         try {
-          new (window as any).MercadoPago(publicKey);
-          console.log('MercadoPago SDK initialized successfully');
+          new window.MercadoPago(publicKey);
+          console.log('✅ MercadoPago SDK v2 initialized successfully');
         } catch (error) {
-          console.error('Error initializing MercadoPago SDK:', error);
+          console.error('❌ Error initializing MercadoPago SDK v2:', error);
         }
       } else {
-        console.warn('MercadoPago public key not found or SDK not loaded');
+        console.warn('⚠️ MercadoPago public key not found or SDK not loaded');
       }
     };
     script.onerror = () => {
-      console.error('Failed to load MercadoPago SDK');
+      console.error('❌ Failed to load MercadoPago SDK v2');
     };
     document.body.appendChild(script);
     
@@ -502,7 +502,7 @@ const EnhancedAgendaPage: React.FC = () => {
       const token = localStorage.getItem('token');
       const apiUrl = getApiUrl();
 
-      console.log('Creating agenda subscription payment...');
+      console.log('🔄 Creating agenda subscription payment...');
 
       const response = await fetch(`${apiUrl}/api/agenda/create-subscription-payment`, {
         method: 'POST',
@@ -514,7 +514,7 @@ const EnhancedAgendaPage: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Payment preference created:', data);
+        console.log('✅ Payment preference created:', data);
         
         // Open MercadoPago checkout in new tab
         window.open(data.init_point, '_blank');
@@ -522,11 +522,11 @@ const EnhancedAgendaPage: React.FC = () => {
         setSuccess('Redirecionando para o pagamento...');
       } else {
         const errorData = await response.json();
-        console.error('Payment creation failed:', errorData);
+        console.error('❌ Payment creation failed:', errorData);
         setError(errorData.message || 'Erro ao processar pagamento');
       }
     } catch (error) {
-      console.error('Error creating payment:', error);
+      console.error('❌ Error creating payment:', error);
       setError('Erro ao processar pagamento');
     }
   };
