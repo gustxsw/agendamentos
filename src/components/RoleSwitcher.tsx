@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { ChevronDown, User, Shield, Briefcase, RefreshCw } from 'lucide-react';
+import { ChevronDown, User, Shield, Briefcase, RefreshCw, Building2 } from 'lucide-react';
 
 const RoleSwitcher: React.FC = () => {
   const { user, switchRole } = useAuth();
@@ -45,6 +45,13 @@ const RoleSwitcher: React.FC = () => {
           icon: <Briefcase className="h-4 w-4" />,
           color: 'text-blue-600',
           bgColor: 'bg-blue-50'
+        };
+      case 'clinic':
+        return {
+          title: 'Clínica',
+          icon: <Building2 className="h-4 w-4" />,
+          color: 'text-purple-600',
+          bgColor: 'bg-purple-50'
         };
       case 'admin':
         return {

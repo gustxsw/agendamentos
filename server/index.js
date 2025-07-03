@@ -1,69 +1,44 @@
+// 🔥 COMPLETE BACKEND WITH DATABASE TABLES AND MERCADOPAGO SDK V2 INTEGRATION
+// Import required modules
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import { pool } from './db.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
-import { pool } from './db.js';
 import { authenticate, authorize } from './middleware/auth.js';
 import createUpload from './middleware/upload.js';
-import multer from 'multer';
+import { format } from 'date-fns';
 
+// Load environment variables
 dotenv.config();
 
+// Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// 🔥 MERCADO PAGO SDK V2 CONFIGURATION
-let mercadopago;
-try {
-  const { MercadoPagoConfig, Preference } = await import('mercadopago');
-  
-  const accessToken = process.env.MP_ACCESS_TOKEN;
-  if (!accessToken) {
-    console.error('❌ MP_ACCESS_TOKEN not found in environment variables');
-  } else {
-    console.log('✅ MercadoPago SDK v2 access token found');
-    
-    // Initialize MercadoPago with SDK v2
-    const client = new MercadoPagoConfig({
-      accessToken: accessToken,
-      options: {
-        timeout: 5000,
-        idempotencyKey: 'abc'
-      }
-    });
-    
-    mercadopago = {
-      client,
-      Preference: new Preference(client)
-    };
-    
-    console.log('✅ MercadoPago SDK v2 initialized successfully');
-  }
-} catch (error) {
-  console.error('❌ Error initializing MercadoPago SDK v2:', error);
-}
-
 // Middleware
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://www.cartaoquiroferreira.com.br',
-    'https://cartaoquiroferreira.com.br'
-  ],
+  origin: ['http://localhost:5173', 'https://www.cartaoquiroferreira.com.br', 'https://cartaoquiroferreira.com.br'],
   credentials: true
 }));
-
 app.use(express.json());
 app.use(cookieParser());
 
-// 🔥 DATABASE INITIALIZATION - CREATE ALL TABLES
+// Create upload middleware
+let upload;
+try {
+  upload = createUpload();
+} catch (error) {
+  console.error('❌ Failed to create upload middleware:', error);
+}
+
+// Database initialization - Create tables if they don't exist
 const initializeDatabase = async () => {
   try {
-    console.log('🔄 Initializing database tables...');
-
+    console.log('🔄 Initializing database...');
+    
     // Create users table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -73,111 +48,126 @@ const initializeDatabase = async () => {
         email VARCHAR(255),
         phone VARCHAR(20),
         birth_date DATE,
-        address TEXT,
+        address VARCHAR(255),
         address_number VARCHAR(20),
-        address_complement VARCHAR(100),
-        neighborhood VARCHAR(100),
-        city VARCHAR(100),
+        address_complement VARCHAR(255),
+        neighborhood VARCHAR(255),
+        city VARCHAR(255),
         state VARCHAR(2),
-        password_hash VARCHAR(255) NOT NULL,
-        roles TEXT[] DEFAULT ARRAY['client'],
-        percentage INTEGER DEFAULT 50,
-        category_id INTEGER,
+        password VARCHAR(255) NOT NULL,
+        roles TEXT[] NOT NULL DEFAULT '{"client"}',
+        percentage INT,
+        category_id INT,
         subscription_status VARCHAR(20) DEFAULT 'pending',
-        subscription_expiry TIMESTAMP,
-        professional_registration VARCHAR(100),
+        subscription_expiry DATE,
+        professional_registration VARCHAR(50),
         photo_url TEXT,
+        clinic_id INT,
+        professional_type VARCHAR(20),
+        is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
-
+    console.log('✅ Users table created or already exists');
+    
     // Create service_categories table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS service_categories (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
-
+    console.log('✅ Service categories table created or already exists');
+    
     // Create services table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS services (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         description TEXT,
-        base_price DECIMAL(10,2) NOT NULL,
-        category_id INTEGER REFERENCES service_categories(id),
+        base_price DECIMAL(10, 2) NOT NULL,
+        category_id INT REFERENCES service_categories(id),
         is_base_service BOOLEAN DEFAULT false,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
-
+    console.log('✅ Services table created or already exists');
+    
     // Create consultations table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS consultations (
         id SERIAL PRIMARY KEY,
-        client_id INTEGER REFERENCES users(id),
-        dependent_id INTEGER,
-        professional_id INTEGER REFERENCES users(id) NOT NULL,
-        service_id INTEGER REFERENCES services(id) NOT NULL,
-        value DECIMAL(10,2) NOT NULL,
+        client_id INT REFERENCES users(id),
+        dependent_id INT,
+        professional_id INT REFERENCES users(id) NOT NULL,
+        service_id INT REFERENCES services(id) NOT NULL,
+        value DECIMAL(10, 2) NOT NULL,
         date TIMESTAMP NOT NULL,
-        status VARCHAR(50) DEFAULT 'completed',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
-
+    console.log('✅ Consultations table created or already exists');
+    
     // Create dependents table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS dependents (
         id SERIAL PRIMARY KEY,
-        client_id INTEGER REFERENCES users(id) NOT NULL,
+        client_id INT REFERENCES users(id) NOT NULL,
         name VARCHAR(255) NOT NULL,
         cpf VARCHAR(11) UNIQUE NOT NULL,
         birth_date DATE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
-
+    console.log('✅ Dependents table created or already exists');
+    
     // Create professional_locations table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS professional_locations (
         id SERIAL PRIMARY KEY,
-        professional_id INTEGER REFERENCES users(id) NOT NULL,
+        professional_id INT REFERENCES users(id) NOT NULL,
         clinic_name VARCHAR(255) NOT NULL,
-        address TEXT NOT NULL,
+        address VARCHAR(255) NOT NULL,
         address_number VARCHAR(20) NOT NULL,
-        address_complement VARCHAR(100),
-        neighborhood VARCHAR(100) NOT NULL,
-        city VARCHAR(100) NOT NULL,
+        address_complement VARCHAR(255),
+        neighborhood VARCHAR(255) NOT NULL,
+        city VARCHAR(255) NOT NULL,
         state VARCHAR(2) NOT NULL,
         phone VARCHAR(20),
         is_main BOOLEAN DEFAULT false,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
-
+    console.log('✅ Professional locations table created or already exists');
+    
     // Create agenda_subscriptions table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS agenda_subscriptions (
         id SERIAL PRIMARY KEY,
-        professional_id INTEGER REFERENCES users(id) NOT NULL,
-        status VARCHAR(20) DEFAULT 'pending',
+        professional_id INT REFERENCES users(id) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
         expires_at TIMESTAMP,
-        last_payment TIMESTAMP,
+        payment_id VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
-
+    console.log('✅ Agenda subscriptions table created or already exists');
+    
     // Create schedule_configs table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS schedule_configs (
         id SERIAL PRIMARY KEY,
-        professional_id INTEGER REFERENCES users(id) NOT NULL UNIQUE,
+        professional_id INT REFERENCES users(id) NOT NULL,
         monday_start TIME,
         monday_end TIME,
         tuesday_start TIME,
@@ -192,61 +182,62 @@ const initializeDatabase = async () => {
         saturday_end TIME,
         sunday_start TIME,
         sunday_end TIME,
-        slot_duration INTEGER DEFAULT 30,
+        slot_duration INT DEFAULT 30,
         break_start TIME,
         break_end TIME,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
-
+    console.log('✅ Schedule configs table created or already exists');
+    
     // Create appointments table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS appointments (
         id SERIAL PRIMARY KEY,
-        professional_id INTEGER REFERENCES users(id) NOT NULL,
-        patient_id INTEGER NOT NULL,
+        professional_id INT REFERENCES users(id) NOT NULL,
+        patient_id INT NOT NULL,
         date TIMESTAMP NOT NULL,
-        status VARCHAR(50) DEFAULT 'scheduled',
+        status VARCHAR(20) DEFAULT 'scheduled',
         notes TEXT,
-        is_convenio_patient BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
-
+    console.log('✅ Appointments table created or already exists');
+    
     // Create agenda_patients table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS agenda_patients (
         id SERIAL PRIMARY KEY,
-        professional_id INTEGER REFERENCES users(id) NOT NULL,
+        professional_id INT REFERENCES users(id) NOT NULL,
         name VARCHAR(255) NOT NULL,
         cpf VARCHAR(11) NOT NULL,
-        email VARCHAR(255),
         phone VARCHAR(20),
+        email VARCHAR(255),
         birth_date DATE,
-        address TEXT,
+        address VARCHAR(255),
         address_number VARCHAR(20),
-        address_complement VARCHAR(100),
-        neighborhood VARCHAR(100),
-        city VARCHAR(100),
+        address_complement VARCHAR(255),
+        neighborhood VARCHAR(255),
+        city VARCHAR(255),
         state VARCHAR(2),
         notes TEXT,
-        is_convenio_patient BOOLEAN DEFAULT false,
         is_archived BOOLEAN DEFAULT false,
         linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
-
+    console.log('✅ Agenda patients table created or already exists');
+    
     // Create medical_records table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS medical_records (
         id SERIAL PRIMARY KEY,
-        consultation_id INTEGER REFERENCES consultations(id),
-        patient_id INTEGER NOT NULL,
-        professional_id INTEGER REFERENCES users(id) NOT NULL,
+        consultation_id INT,
+        patient_id INT NOT NULL,
+        professional_id INT REFERENCES users(id) NOT NULL,
         chief_complaint TEXT,
         anamnesis TEXT,
         physical_examination TEXT,
@@ -256,965 +247,1268 @@ const initializeDatabase = async () => {
         internal_notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
-
-    // Insert default service categories if they don't exist
-    const categoriesResult = await pool.query('SELECT COUNT(*) FROM service_categories');
-    if (parseInt(categoriesResult.rows[0].count) === 0) {
-      await pool.query(`
-        INSERT INTO service_categories (name, description) VALUES
-        ('Fisioterapia', 'Serviços de fisioterapia e reabilitação'),
-        ('Quiropraxia', 'Tratamentos quiropráticos'),
-        ('Massoterapia', 'Massagens terapêuticas'),
-        ('Acupuntura', 'Tratamentos com acupuntura'),
-        ('Pilates', 'Aulas e sessões de pilates'),
-        ('Psicologia', 'Atendimento psicológico'),
-        ('Nutrição', 'Consultas nutricionais'),
-        ('Odontologia', 'Serviços odontológicos')
-      `);
-    }
-
-    // Insert default services if they don't exist
-    const servicesResult = await pool.query('SELECT COUNT(*) FROM services');
-    if (parseInt(servicesResult.rows[0].count) === 0) {
-      await pool.query(`
-        INSERT INTO services (name, description, base_price, category_id, is_base_service) VALUES
-        ('Consulta Fisioterapia', 'Consulta inicial de fisioterapia', 80.00, 1, true),
-        ('Sessão Fisioterapia', 'Sessão de fisioterapia', 60.00, 1, false),
-        ('Consulta Quiropraxia', 'Consulta quiropráctica', 100.00, 2, true),
-        ('Massagem Relaxante', 'Massagem para relaxamento', 70.00, 3, false),
-        ('Sessão Acupuntura', 'Sessão de acupuntura', 80.00, 4, false),
-        ('Aula Pilates', 'Aula individual de pilates', 60.00, 5, false),
-        ('Consulta Psicológica', 'Consulta psicológica', 120.00, 6, true),
-        ('Consulta Nutricional', 'Consulta com nutricionista', 90.00, 7, true),
-        ('Consulta Odontológica', 'Consulta odontológica', 80.00, 8, true)
-      `);
-    }
-
-    console.log('✅ Database tables initialized successfully');
+    console.log('✅ Medical records table created or already exists');
+    
+    // Create payments table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) NOT NULL,
+        payment_type VARCHAR(50) NOT NULL,
+        amount DECIMAL(10, 2) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        payment_id VARCHAR(255),
+        payment_data JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('✅ Payments table created or already exists');
+    
+    // Create clinic_professionals table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS clinic_professionals (
+        id SERIAL PRIMARY KEY,
+        clinic_id INT REFERENCES users(id) NOT NULL,
+        professional_id INT REFERENCES users(id) NOT NULL,
+        percentage INT DEFAULT 50,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(clinic_id, professional_id)
+      );
+    `);
+    console.log('✅ Clinic professionals table created or already exists');
+    
+    console.log('✅ Database initialization complete');
   } catch (error) {
     console.error('❌ Error initializing database:', error);
-    throw error;
   }
 };
 
 // Initialize database on startup
-initializeDatabase().catch(console.error);
+initializeDatabase();
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
+// ===== AUTHENTICATION ROUTES =====
 
-// 🔥 AUTH ROUTES
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { cpf, password } = req.body;
-
-    if (!cpf || !password) {
-      return res.status(400).json({ message: 'CPF e senha são obrigatórios' });
-    }
-
-    const cleanCpf = cpf.replace(/\D/g, '');
-
-    const result = await pool.query(
-      'SELECT id, name, cpf, password_hash, roles FROM users WHERE cpf = $1',
-      [cleanCpf]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ message: 'Credenciais inválidas' });
-    }
-
-    const user = result.rows[0];
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
-
-    if (!isValidPassword) {
-      return res.status(401).json({ message: 'Credenciais inválidas' });
-    }
-
-    const userData = {
-      id: user.id,
-      name: user.name,
-      cpf: user.cpf,
-      roles: user.roles || ['client']
-    };
-
-    res.json({ user: userData });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
-  }
-});
-
-app.post('/api/auth/select-role', async (req, res) => {
-  try {
-    const { userId, role } = req.body;
-
-    if (!userId || !role) {
-      return res.status(400).json({ message: 'User ID e role são obrigatórios' });
-    }
-
-    const result = await pool.query(
-      'SELECT id, name, cpf, roles FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Usuário não encontrado' });
-    }
-
-    const user = result.rows[0];
-
-    if (!user.roles || !user.roles.includes(role)) {
-      return res.status(403).json({ message: 'Role não autorizada para este usuário' });
-    }
-
-    const token = jwt.sign(
-      { id: user.id, currentRole: role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '24h' }
-    );
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 24 * 60 * 60 * 1000
-    });
-
-    const userData = {
-      id: user.id,
-      name: user.name,
-      cpf: user.cpf,
-      roles: user.roles,
-      currentRole: role
-    };
-
-    res.json({ user: userData, token });
-  } catch (error) {
-    console.error('Role selection error:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
-  }
-});
-
-app.post('/api/auth/switch-role', authenticate, async (req, res) => {
-  try {
-    const { role } = req.body;
-    const userId = req.user.id;
-
-    const result = await pool.query(
-      'SELECT id, name, cpf, roles FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Usuário não encontrado' });
-    }
-
-    const user = result.rows[0];
-
-    if (!user.roles || !user.roles.includes(role)) {
-      return res.status(403).json({ message: 'Role não autorizada para este usuário' });
-    }
-
-    const token = jwt.sign(
-      { id: user.id, currentRole: role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '24h' }
-    );
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 24 * 60 * 60 * 1000
-    });
-
-    const userData = {
-      id: user.id,
-      name: user.name,
-      cpf: user.cpf,
-      roles: user.roles,
-      currentRole: role
-    };
-
-    res.json({ user: userData, token });
-  } catch (error) {
-    console.error('Role switch error:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
-  }
-});
-
+// Register route
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const {
-      name, cpf, email, phone, birth_date, address, address_number,
-      address_complement, neighborhood, city, state, password
+    const { 
+      name, cpf, email, phone, birth_date, address, address_number, 
+      address_complement, neighborhood, city, state, password 
     } = req.body;
-
+    
+    // Validate required fields
     if (!name || !cpf || !password) {
       return res.status(400).json({ message: 'Nome, CPF e senha são obrigatórios' });
     }
-
-    const cleanCpf = cpf.replace(/\D/g, '');
-
-    if (!/^\d{11}$/.test(cleanCpf)) {
-      return res.status(400).json({ message: 'CPF deve conter 11 dígitos' });
+    
+    // Check if user already exists
+    const userCheck = await pool.query('SELECT * FROM users WHERE cpf = $1', [cpf]);
+    if (userCheck.rows.length > 0) {
+      return res.status(400).json({ message: 'CPF já cadastrado' });
     }
-
-    const existingUser = await pool.query('SELECT id FROM users WHERE cpf = $1', [cleanCpf]);
-    if (existingUser.rows.length > 0) {
-      return res.status(409).json({ message: 'CPF já cadastrado' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const result = await pool.query(`
-      INSERT INTO users (
-        name, cpf, email, phone, birth_date, address, address_number,
-        address_complement, neighborhood, city, state, password_hash, roles
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING id, name, cpf, roles
-    `, [
-      name, cleanCpf, email, phone, birth_date, address, address_number,
-      address_complement, neighborhood, city, state, hashedPassword, ['client']
-    ]);
-
+    
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    
+    // Create user
+    const result = await pool.query(
+      `INSERT INTO users (
+        name, cpf, email, phone, birth_date, address, address_number, 
+        address_complement, neighborhood, city, state, password, roles
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [
+        name, cpf, email, phone, birth_date, address, address_number, 
+        address_complement, neighborhood, city, state, hashedPassword, ['client']
+      ]
+    );
+    
     const user = result.rows[0];
-
+    
+    // Create JWT token
+    const token = jwt.sign(
+      { id: user.id, currentRole: 'client' },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '7d' }
+    );
+    
+    // Set cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+    
+    // Return user data (without password)
+    delete user.password;
+    user.currentRole = 'client';
+    
     res.status(201).json({
-      message: 'Usuário criado com sucesso',
-      user: {
-        id: user.id,
-        name: user.name,
-        cpf: user.cpf,
-        roles: user.roles
-      }
+      message: 'Usuário registrado com sucesso',
+      token,
+      user
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao registrar usuário' });
   }
 });
 
+// Login route
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { cpf, password } = req.body;
+    
+    // Validate input
+    if (!cpf || !password) {
+      return res.status(400).json({ message: 'CPF e senha são obrigatórios' });
+    }
+    
+    // Find user
+    const result = await pool.query('SELECT * FROM users WHERE cpf = $1', [cpf]);
+    
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: 'Credenciais inválidas' });
+    }
+    
+    const user = result.rows[0];
+    
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Credenciais inválidas' });
+    }
+    
+    // Create JWT token with first role as default
+    const token = jwt.sign(
+      { id: user.id, currentRole: user.roles[0] },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '7d' }
+    );
+    
+    // Set cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+    
+    // Return user data (without password)
+    delete user.password;
+    user.currentRole = user.roles[0];
+    
+    res.json({
+      message: 'Login bem-sucedido',
+      token,
+      user
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Erro ao fazer login' });
+  }
+});
+
+// Select role route
+app.post('/api/auth/select-role', async (req, res) => {
+  try {
+    const { userId, role } = req.body;
+    
+    // Validate input
+    if (!userId || !role) {
+      return res.status(400).json({ message: 'ID do usuário e role são obrigatórios' });
+    }
+    
+    // Find user
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Usuário não encontrado' });
+    }
+    
+    const user = result.rows[0];
+    
+    // Check if user has the requested role
+    if (!user.roles.includes(role)) {
+      return res.status(403).json({ message: 'Usuário não possui esta role' });
+    }
+    
+    // Create JWT token with selected role
+    const token = jwt.sign(
+      { id: user.id, currentRole: role },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '7d' }
+    );
+    
+    // Set cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+    
+    // Return user data (without password)
+    delete user.password;
+    user.currentRole = role;
+    
+    res.json({
+      message: 'Role selecionada com sucesso',
+      token,
+      user
+    });
+  } catch (error) {
+    console.error('Role selection error:', error);
+    res.status(500).json({ message: 'Erro ao selecionar role' });
+  }
+});
+
+// Switch role route
+app.post('/api/auth/switch-role', authenticate, async (req, res) => {
+  try {
+    const { role } = req.body;
+    
+    // Validate input
+    if (!role) {
+      return res.status(400).json({ message: 'Role é obrigatória' });
+    }
+    
+    // Find user
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Usuário não encontrado' });
+    }
+    
+    const user = result.rows[0];
+    
+    // Check if user has the requested role
+    if (!user.roles.includes(role)) {
+      return res.status(403).json({ message: 'Usuário não possui esta role' });
+    }
+    
+    // Create JWT token with selected role
+    const token = jwt.sign(
+      { id: user.id, currentRole: role },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '7d' }
+    );
+    
+    // Set cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+    
+    // Return user data (without password)
+    delete user.password;
+    user.currentRole = role;
+    
+    res.json({
+      message: 'Role alterada com sucesso',
+      token,
+      user
+    });
+  } catch (error) {
+    console.error('Role switch error:', error);
+    res.status(500).json({ message: 'Erro ao trocar role' });
+  }
+});
+
+// Logout route
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('token');
-  res.json({ message: 'Logout realizado com sucesso' });
+  res.json({ message: 'Logout bem-sucedido' });
 });
 
-// 🔥 USER ROUTES
+// ===== USER ROUTES =====
+
+// Get all users (admin only)
 app.get('/api/users', authenticate, authorize(['admin']), async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT 
-        u.id, u.name, u.cpf, u.email, u.phone, u.birth_date,
-        u.address, u.address_number, u.address_complement,
-        u.neighborhood, u.city, u.state, u.roles, u.percentage,
-        u.category_id, u.subscription_status, u.subscription_expiry,
-        u.created_at, sc.name as category_name
-      FROM users u
-      LEFT JOIN service_categories sc ON u.category_id = sc.id
-      ORDER BY u.created_at DESC
-    `);
-
-    res.json(result.rows);
+    const result = await pool.query('SELECT * FROM users ORDER BY name');
+    
+    // Remove passwords from response
+    const users = result.rows.map(user => {
+      delete user.password;
+      return user;
+    });
+    
+    res.json(users);
   } catch (error) {
     console.error('Error fetching users:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar usuários' });
   }
 });
 
+// Get user by ID
 app.get('/api/users/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
     
-    const result = await pool.query(`
-      SELECT 
-        u.id, u.name, u.cpf, u.email, u.phone, u.birth_date,
-        u.address, u.address_number, u.address_complement,
-        u.neighborhood, u.city, u.state, u.roles, u.percentage,
-        u.category_id, u.subscription_status, u.subscription_expiry,
-        u.professional_registration, u.photo_url, u.created_at,
-        sc.name as category_name
-      FROM users u
-      LEFT JOIN service_categories sc ON u.category_id = sc.id
-      WHERE u.id = $1
-    `, [id]);
-
+    // Only allow users to access their own data unless they're admins
+    if (req.user.id !== parseInt(id) && req.user.currentRole !== 'admin') {
+      return res.status(403).json({ message: 'Acesso não autorizado' });
+    }
+    
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    
     if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Usuário não encontrado' });
     }
-
-    res.json(result.rows[0]);
+    
+    // Remove password from response
+    const user = result.rows[0];
+    delete user.password;
+    
+    res.json(user);
   } catch (error) {
     console.error('Error fetching user:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar usuário' });
   }
 });
 
+// Create user (admin only)
 app.post('/api/users', authenticate, authorize(['admin']), async (req, res) => {
   try {
-    const {
-      name, cpf, email, phone, birth_date, address, address_number,
+    const { 
+      name, cpf, email, phone, birth_date, address, address_number, 
       address_complement, neighborhood, city, state, password, roles,
       percentage, category_id
     } = req.body;
-
+    
+    // Validate required fields
     if (!name || !cpf || !password || !roles || roles.length === 0) {
-      return res.status(400).json({ message: 'Campos obrigatórios não preenchidos' });
+      return res.status(400).json({ message: 'Nome, CPF, senha e pelo menos uma role são obrigatórios' });
     }
-
-    const cleanCpf = cpf.replace(/\D/g, '');
-
-    const existingUser = await pool.query('SELECT id FROM users WHERE cpf = $1', [cleanCpf]);
-    if (existingUser.rows.length > 0) {
-      return res.status(409).json({ message: 'CPF já cadastrado' });
+    
+    // Check if user already exists
+    const userCheck = await pool.query('SELECT * FROM users WHERE cpf = $1', [cpf]);
+    if (userCheck.rows.length > 0) {
+      return res.status(400).json({ message: 'CPF já cadastrado' });
     }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const result = await pool.query(`
-      INSERT INTO users (
-        name, cpf, email, phone, birth_date, address, address_number,
-        address_complement, neighborhood, city, state, password_hash, roles,
+    
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    
+    // Create user
+    const result = await pool.query(
+      `INSERT INTO users (
+        name, cpf, email, phone, birth_date, address, address_number, 
+        address_complement, neighborhood, city, state, password, roles,
         percentage, category_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING id, name, cpf, email, roles
-    `, [
-      name, cleanCpf, email, phone, birth_date, address, address_number,
-      address_complement, neighborhood, city, state, hashedPassword, roles,
-      percentage, category_id
-    ]);
-
-    res.status(201).json(result.rows[0]);
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      [
+        name, cpf, email, phone, birth_date, address, address_number, 
+        address_complement, neighborhood, city, state, hashedPassword, roles,
+        percentage, category_id
+      ]
+    );
+    
+    // Return user data (without password)
+    const user = result.rows[0];
+    delete user.password;
+    
+    res.status(201).json(user);
   } catch (error) {
     console.error('Error creating user:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao criar usuário' });
   }
 });
 
+// Update user
 app.put('/api/users/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      name, email, phone, birth_date, address, address_number,
+    const { 
+      name, email, phone, birth_date, address, address_number, 
       address_complement, neighborhood, city, state, roles,
       percentage, category_id
     } = req.body;
-
-    // Check if user can edit this profile
-    if (req.user.id !== parseInt(id) && !req.user.roles?.includes('admin')) {
-      return res.status(403).json({ message: 'Não autorizado' });
+    
+    // Only allow users to update their own data unless they're admins
+    if (req.user.id !== parseInt(id) && req.user.currentRole !== 'admin') {
+      return res.status(403).json({ message: 'Acesso não autorizado' });
     }
-
-    const result = await pool.query(`
-      UPDATE users SET
-        name = $1, email = $2, phone = $3, birth_date = $4,
-        address = $5, address_number = $6, address_complement = $7,
-        neighborhood = $8, city = $9, state = $10, roles = $11,
-        percentage = $12, category_id = $13, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $14
-      RETURNING id, name, email, roles
-    `, [
-      name, email, phone, birth_date, address, address_number,
-      address_complement, neighborhood, city, state, roles,
-      percentage, category_id, id
-    ]);
-
-    if (result.rows.length === 0) {
+    
+    // Check if user exists
+    const userCheck = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    if (userCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Usuário não encontrado' });
     }
-
-    res.json(result.rows[0]);
+    
+    // Update user
+    const result = await pool.query(
+      `UPDATE users SET 
+        name = COALESCE($1, name),
+        email = COALESCE($2, email),
+        phone = COALESCE($3, phone),
+        birth_date = COALESCE($4, birth_date),
+        address = COALESCE($5, address),
+        address_number = COALESCE($6, address_number),
+        address_complement = COALESCE($7, address_complement),
+        neighborhood = COALESCE($8, neighborhood),
+        city = COALESCE($9, city),
+        state = COALESCE($10, state),
+        roles = COALESCE($11, roles),
+        percentage = COALESCE($12, percentage),
+        category_id = COALESCE($13, category_id),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $14 RETURNING *`,
+      [
+        name, email, phone, birth_date, address, address_number, 
+        address_complement, neighborhood, city, state, roles,
+        percentage, category_id, id
+      ]
+    );
+    
+    // Return updated user data (without password)
+    const user = result.rows[0];
+    delete user.password;
+    
+    res.json(user);
   } catch (error) {
     console.error('Error updating user:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao atualizar usuário' });
   }
 });
 
+// Change password
+app.put('/api/users/change-password', authenticate, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Senha atual e nova senha são obrigatórias' });
+    }
+    
+    // Get user
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Usuário não encontrado' });
+    }
+    
+    const user = result.rows[0];
+    
+    // Check current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Senha atual incorreta' });
+    }
+    
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    
+    // Update password
+    await pool.query(
+      'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [hashedPassword, req.user.id]
+    );
+    
+    res.json({ message: 'Senha alterada com sucesso' });
+  } catch (error) {
+    console.error('Error changing password:', error);
+    res.status(500).json({ message: 'Erro ao alterar senha' });
+  }
+});
+
+// Delete user (admin only)
+app.delete('/api/users/:id', authenticate, authorize(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if user exists
+    const userCheck = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Usuário não encontrado' });
+    }
+    
+    // Delete user
+    await pool.query('DELETE FROM users WHERE id = $1', [id]);
+    
+    res.json({ message: 'Usuário excluído com sucesso' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Erro ao excluir usuário' });
+  }
+});
+
+// Activate client subscription
 app.put('/api/users/:id/activate', authenticate, authorize(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
     const { expiry_date } = req.body;
-
+    
+    // Validate input
     if (!expiry_date) {
       return res.status(400).json({ message: 'Data de expiração é obrigatória' });
     }
-
-    const result = await pool.query(`
-      UPDATE users SET
+    
+    // Check if user exists
+    const userCheck = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Usuário não encontrado' });
+    }
+    
+    // Update subscription status
+    const result = await pool.query(
+      `UPDATE users SET 
         subscription_status = 'active',
         subscription_expiry = $1,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-      RETURNING id, name, subscription_status, subscription_expiry
-    `, [expiry_date, id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Usuário não encontrado' });
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Error activating user:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
-  }
-});
-
-app.delete('/api/users/:id', authenticate, authorize(['admin']), async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const result = await pool.query('DELETE FROM users WHERE id = $1 RETURNING id', [id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Usuário não encontrado' });
-    }
-
-    res.json({ message: 'Usuário excluído com sucesso' });
-  } catch (error) {
-    console.error('Error deleting user:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
-  }
-});
-
-app.put('/api/users/change-password', authenticate, async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    const userId = req.user.id;
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: 'Senha atual e nova senha são obrigatórias' });
-    }
-
-    const result = await pool.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Usuário não encontrado' });
-    }
-
-    const isValidPassword = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
-    
-    if (!isValidPassword) {
-      return res.status(400).json({ message: 'Senha atual incorreta' });
-    }
-
-    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-
-    await pool.query(
-      'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-      [hashedNewPassword, userId]
+      WHERE id = $2 RETURNING *`,
+      [expiry_date, id]
     );
-
-    res.json({ message: 'Senha alterada com sucesso' });
+    
+    // Return updated user data (without password)
+    const user = result.rows[0];
+    delete user.password;
+    
+    res.json(user);
   } catch (error) {
-    console.error('Error changing password:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    console.error('Error activating subscription:', error);
+    res.status(500).json({ message: 'Erro ao ativar assinatura' });
   }
 });
 
-// 🔥 SERVICE CATEGORIES ROUTES
+// ===== SERVICE CATEGORIES ROUTES =====
+
+// Get all service categories
 app.get('/api/service-categories', authenticate, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM service_categories ORDER BY name');
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching service categories:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar categorias de serviço' });
   }
 });
 
+// Create service category (admin only)
 app.post('/api/service-categories', authenticate, authorize(['admin']), async (req, res) => {
   try {
     const { name, description } = req.body;
-
+    
+    // Validate input
     if (!name) {
       return res.status(400).json({ message: 'Nome é obrigatório' });
     }
-
+    
+    // Create category
     const result = await pool.query(
       'INSERT INTO service_categories (name, description) VALUES ($1, $2) RETURNING *',
       [name, description]
     );
-
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating service category:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao criar categoria de serviço' });
   }
 });
 
-// 🔥 SERVICES ROUTES
+// ===== SERVICES ROUTES =====
+
+// Get all services
 app.get('/api/services', authenticate, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT s.*, sc.name as category_name
+      SELECT s.*, c.name as category_name
       FROM services s
-      LEFT JOIN service_categories sc ON s.category_id = sc.id
-      ORDER BY sc.name, s.name
+      LEFT JOIN service_categories c ON s.category_id = c.id
+      ORDER BY s.name
     `);
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching services:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar serviços' });
   }
 });
 
+// Create service (admin only)
 app.post('/api/services', authenticate, authorize(['admin']), async (req, res) => {
   try {
     const { name, description, base_price, category_id, is_base_service } = req.body;
-
+    
+    // Validate input
     if (!name || !base_price) {
       return res.status(400).json({ message: 'Nome e preço base são obrigatórios' });
     }
-
-    const result = await pool.query(`
-      INSERT INTO services (name, description, base_price, category_id, is_base_service)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
-    `, [name, description, base_price, category_id, is_base_service]);
-
+    
+    // Create service
+    const result = await pool.query(
+      `INSERT INTO services (name, description, base_price, category_id, is_base_service)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [name, description, base_price, category_id, is_base_service]
+    );
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating service:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao criar serviço' });
   }
 });
 
+// Update service (admin only)
 app.put('/api/services/:id', authenticate, authorize(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, base_price, category_id, is_base_service } = req.body;
-
-    const result = await pool.query(`
-      UPDATE services SET
-        name = $1, description = $2, base_price = $3,
-        category_id = $4, is_base_service = $5
-      WHERE id = $6
-      RETURNING *
-    `, [name, description, base_price, category_id, is_base_service, id]);
-
-    if (result.rows.length === 0) {
+    
+    // Check if service exists
+    const serviceCheck = await pool.query('SELECT * FROM services WHERE id = $1', [id]);
+    if (serviceCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Serviço não encontrado' });
     }
-
+    
+    // Update service
+    const result = await pool.query(
+      `UPDATE services SET 
+        name = COALESCE($1, name),
+        description = COALESCE($2, description),
+        base_price = COALESCE($3, base_price),
+        category_id = COALESCE($4, category_id),
+        is_base_service = COALESCE($5, is_base_service),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $6 RETURNING *`,
+      [name, description, base_price, category_id, is_base_service, id]
+    );
+    
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error updating service:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao atualizar serviço' });
   }
 });
 
+// Delete service (admin only)
 app.delete('/api/services/:id', authenticate, authorize(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
-
-    const result = await pool.query('DELETE FROM services WHERE id = $1 RETURNING id', [id]);
-
-    if (result.rows.length === 0) {
+    
+    // Check if service exists
+    const serviceCheck = await pool.query('SELECT * FROM services WHERE id = $1', [id]);
+    if (serviceCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Serviço não encontrado' });
     }
-
+    
+    // Delete service
+    await pool.query('DELETE FROM services WHERE id = $1', [id]);
+    
     res.json({ message: 'Serviço excluído com sucesso' });
   } catch (error) {
     console.error('Error deleting service:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao excluir serviço' });
   }
 });
 
-// 🔥 CONSULTATIONS ROUTES
+// ===== CONSULTATIONS ROUTES =====
+
+// Get all consultations
 app.get('/api/consultations', authenticate, async (req, res) => {
   try {
-    let query = `
-      SELECT 
-        c.id, c.value, c.date, c.status,
-        s.name as service_name,
-        CASE 
-          WHEN c.dependent_id IS NOT NULL THEN d.name
-          ELSE u.name
-        END as client_name,
-        p.name as professional_name,
-        CASE 
-          WHEN c.dependent_id IS NOT NULL THEN true
-          ELSE false
-        END as is_dependent
-      FROM consultations c
-      LEFT JOIN users u ON c.client_id = u.id
-      LEFT JOIN dependents d ON c.dependent_id = d.id
-      LEFT JOIN users p ON c.professional_id = p.id
-      LEFT JOIN services s ON c.service_id = s.id
-    `;
-
-    const params = [];
-
-    if (req.user.currentRole === 'professional') {
-      query += ' WHERE c.professional_id = $1';
-      params.push(req.user.id);
-    } else if (req.user.currentRole === 'client') {
-      query += ' WHERE (c.client_id = $1 OR d.client_id = $1)';
-      params.push(req.user.id);
+    let query;
+    let params = [];
+    
+    // Different queries based on user role
+    if (req.user.currentRole === 'admin') {
+      // Admin can see all consultations
+      query = `
+        SELECT c.*, 
+          u1.name as client_name, 
+          u2.name as professional_name,
+          s.name as service_name,
+          CASE WHEN d.id IS NOT NULL THEN true ELSE false END as is_dependent,
+          COALESCE(d.name, u1.name) as patient_name
+        FROM consultations c
+        LEFT JOIN users u1 ON c.client_id = u1.id
+        LEFT JOIN users u2 ON c.professional_id = u2.id
+        LEFT JOIN services s ON c.service_id = s.id
+        LEFT JOIN dependents d ON c.dependent_id = d.id
+        ORDER BY c.date DESC
+      `;
+    } else if (req.user.currentRole === 'professional') {
+      // Professionals can only see their own consultations
+      query = `
+        SELECT c.*, 
+          u1.name as client_name, 
+          u2.name as professional_name,
+          s.name as service_name,
+          CASE WHEN d.id IS NOT NULL THEN true ELSE false END as is_dependent,
+          COALESCE(d.name, u1.name) as patient_name
+        FROM consultations c
+        LEFT JOIN users u1 ON c.client_id = u1.id
+        LEFT JOIN users u2 ON c.professional_id = u2.id
+        LEFT JOIN services s ON c.service_id = s.id
+        LEFT JOIN dependents d ON c.dependent_id = d.id
+        WHERE c.professional_id = $1
+        ORDER BY c.date DESC
+      `;
+      params = [req.user.id];
+    } else if (req.user.currentRole === 'clinic') {
+      // Clinics can see consultations of their professionals
+      query = `
+        SELECT c.*, 
+          u1.name as client_name, 
+          u2.name as professional_name,
+          s.name as service_name,
+          CASE WHEN d.id IS NOT NULL THEN true ELSE false END as is_dependent,
+          COALESCE(d.name, u1.name) as patient_name
+        FROM consultations c
+        LEFT JOIN users u1 ON c.client_id = u1.id
+        LEFT JOIN users u2 ON c.professional_id = u2.id
+        LEFT JOIN services s ON c.service_id = s.id
+        LEFT JOIN dependents d ON c.dependent_id = d.id
+        WHERE c.professional_id IN (
+          SELECT professional_id FROM clinic_professionals WHERE clinic_id = $1
+        )
+        ORDER BY c.date DESC
+      `;
+      params = [req.user.id];
+    } else {
+      // Clients can only see their own consultations
+      query = `
+        SELECT c.*, 
+          u1.name as client_name, 
+          u2.name as professional_name,
+          s.name as service_name,
+          CASE WHEN d.id IS NOT NULL THEN true ELSE false END as is_dependent,
+          COALESCE(d.name, u1.name) as patient_name
+        FROM consultations c
+        LEFT JOIN users u1 ON c.client_id = u1.id
+        LEFT JOIN users u2 ON c.professional_id = u2.id
+        LEFT JOIN services s ON c.service_id = s.id
+        LEFT JOIN dependents d ON c.dependent_id = d.id
+        WHERE c.client_id = $1 OR d.client_id = $1
+        ORDER BY c.date DESC
+      `;
+      params = [req.user.id];
     }
-
-    query += ' ORDER BY c.date DESC';
-
+    
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching consultations:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar consultas' });
   }
 });
 
-app.post('/api/consultations', authenticate, authorize(['professional']), async (req, res) => {
+// Create consultation
+app.post('/api/consultations', authenticate, authorize(['professional', 'admin']), async (req, res) => {
   try {
-    const { client_id, dependent_id, service_id, value, date } = req.body;
-    const professional_id = req.user.id;
-
-    if ((!client_id && !dependent_id) || !service_id || !value || !date) {
-      return res.status(400).json({ message: 'Dados obrigatórios não preenchidos' });
+    const { client_id, dependent_id, professional_id, service_id, value, date, notes } = req.body;
+    
+    // Validate input
+    if ((!client_id && !dependent_id) || !professional_id || !service_id || !value || !date) {
+      return res.status(400).json({ message: 'Cliente/dependente, profissional, serviço, valor e data são obrigatórios' });
     }
-
-    const result = await pool.query(`
-      INSERT INTO consultations (client_id, dependent_id, professional_id, service_id, value, date)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-    `, [client_id, dependent_id, professional_id, service_id, value, date]);
-
+    
+    // If dependent_id is provided, check if it exists and belongs to the client
+    if (dependent_id) {
+      const dependentCheck = await pool.query('SELECT * FROM dependents WHERE id = $1', [dependent_id]);
+      if (dependentCheck.rows.length === 0) {
+        return res.status(404).json({ message: 'Dependente não encontrado' });
+      }
+    }
+    
+    // If client_id is provided, check if it exists
+    if (client_id) {
+      const clientCheck = await pool.query('SELECT * FROM users WHERE id = $1 AND $2 = ANY(roles)', [client_id, 'client']);
+      if (clientCheck.rows.length === 0) {
+        return res.status(404).json({ message: 'Cliente não encontrado' });
+      }
+      
+      // Check if client has active subscription
+      if (clientCheck.rows[0].subscription_status !== 'active') {
+        return res.status(400).json({ message: 'Cliente não possui assinatura ativa' });
+      }
+    }
+    
+    // Check if professional exists
+    const professionalCheck = await pool.query('SELECT * FROM users WHERE id = $1 AND $2 = ANY(roles)', [professional_id, 'professional']);
+    if (professionalCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Profissional não encontrado' });
+    }
+    
+    // Check if service exists
+    const serviceCheck = await pool.query('SELECT * FROM services WHERE id = $1', [service_id]);
+    if (serviceCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Serviço não encontrado' });
+    }
+    
+    // Create consultation
+    const result = await pool.query(
+      `INSERT INTO consultations (client_id, dependent_id, professional_id, service_id, value, date, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [client_id, dependent_id, professional_id, service_id, value, date, notes]
+    );
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating consultation:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao criar consulta' });
   }
 });
 
-// 🔥 DEPENDENTS ROUTES
+// Create clinic consultation
+app.post('/api/clinic/consultations', authenticate, authorize(['clinic']), async (req, res) => {
+  try {
+    const { client_id, dependent_id, professional_id, service_id, value, date, notes } = req.body;
+    
+    // Validate input
+    if ((!client_id && !dependent_id) || !professional_id || !service_id || !value || !date) {
+      return res.status(400).json({ message: 'Cliente/dependente, profissional, serviço, valor e data são obrigatórios' });
+    }
+    
+    // Check if professional belongs to this clinic
+    const professionalCheck = await pool.query(
+      'SELECT * FROM clinic_professionals WHERE clinic_id = $1 AND professional_id = $2',
+      [req.user.id, professional_id]
+    );
+    
+    if (professionalCheck.rows.length === 0) {
+      return res.status(403).json({ message: 'Este profissional não pertence à sua clínica' });
+    }
+    
+    // If dependent_id is provided, check if it exists and belongs to the client
+    if (dependent_id) {
+      const dependentCheck = await pool.query('SELECT * FROM dependents WHERE id = $1', [dependent_id]);
+      if (dependentCheck.rows.length === 0) {
+        return res.status(404).json({ message: 'Dependente não encontrado' });
+      }
+    }
+    
+    // If client_id is provided, check if it exists
+    if (client_id) {
+      const clientCheck = await pool.query('SELECT * FROM users WHERE id = $1 AND $2 = ANY(roles)', [client_id, 'client']);
+      if (clientCheck.rows.length === 0) {
+        return res.status(404).json({ message: 'Cliente não encontrado' });
+      }
+      
+      // Check if client has active subscription
+      if (clientCheck.rows[0].subscription_status !== 'active') {
+        return res.status(400).json({ message: 'Cliente não possui assinatura ativa' });
+      }
+    }
+    
+    // Check if service exists
+    const serviceCheck = await pool.query('SELECT * FROM services WHERE id = $1', [service_id]);
+    if (serviceCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Serviço não encontrado' });
+    }
+    
+    // Create consultation
+    const result = await pool.query(
+      `INSERT INTO consultations (client_id, dependent_id, professional_id, service_id, value, date, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [client_id, dependent_id, professional_id, service_id, value, date, notes]
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating clinic consultation:', error);
+    res.status(500).json({ message: 'Erro ao criar consulta' });
+  }
+});
+
+// ===== DEPENDENTS ROUTES =====
+
+// Get dependents by client ID
 app.get('/api/dependents/:clientId', authenticate, async (req, res) => {
   try {
     const { clientId } = req.params;
-
-    // Check if user can access this client's dependents
+    
+    // Only allow clients to access their own dependents or admins to access any
     if (req.user.currentRole === 'client' && req.user.id !== parseInt(clientId)) {
-      return res.status(403).json({ message: 'Não autorizado' });
+      return res.status(403).json({ message: 'Acesso não autorizado' });
     }
-
+    
     const result = await pool.query(
       'SELECT * FROM dependents WHERE client_id = $1 ORDER BY name',
       [clientId]
     );
-
+    
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching dependents:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar dependentes' });
   }
 });
 
-app.get('/api/dependents/lookup', authenticate, async (req, res) => {
-  try {
-    const { cpf } = req.query;
-
-    if (!cpf) {
-      return res.status(400).json({ message: 'CPF é obrigatório' });
-    }
-
-    const cleanCpf = cpf.toString().replace(/\D/g, '');
-
-    const result = await pool.query(`
-      SELECT 
-        d.id, d.name, d.cpf, d.birth_date, d.client_id,
-        u.name as client_name, u.subscription_status as client_subscription_status
-      FROM dependents d
-      JOIN users u ON d.client_id = u.id
-      WHERE d.cpf = $1
-    `, [cleanCpf]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Dependente não encontrado' });
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Error looking up dependent:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
-  }
-});
-
-app.post('/api/dependents', authenticate, async (req, res) => {
+// Create dependent
+app.post('/api/dependents', authenticate, authorize(['client']), async (req, res) => {
   try {
     const { client_id, name, cpf, birth_date } = req.body;
-
+    
+    // Validate input
     if (!client_id || !name || !cpf) {
-      return res.status(400).json({ message: 'Dados obrigatórios não preenchidos' });
+      return res.status(400).json({ message: 'ID do cliente, nome e CPF são obrigatórios' });
     }
-
-    // Check if user can add dependents for this client
-    if (req.user.currentRole === 'client' && req.user.id !== parseInt(client_id)) {
-      return res.status(403).json({ message: 'Não autorizado' });
+    
+    // Only allow clients to create dependents for themselves
+    if (req.user.id !== client_id) {
+      return res.status(403).json({ message: 'Acesso não autorizado' });
     }
-
-    const cleanCpf = cpf.replace(/\D/g, '');
-
-    // Check if CPF already exists
-    const existingDependent = await pool.query('SELECT id FROM dependents WHERE cpf = $1', [cleanCpf]);
-    if (existingDependent.rows.length > 0) {
-      return res.status(409).json({ message: 'CPF já cadastrado' });
+    
+    // Check if dependent with this CPF already exists
+    const dependentCheck = await pool.query('SELECT * FROM dependents WHERE cpf = $1', [cpf]);
+    if (dependentCheck.rows.length > 0) {
+      return res.status(400).json({ message: 'CPF já cadastrado como dependente' });
     }
-
-    const result = await pool.query(`
-      INSERT INTO dependents (client_id, name, cpf, birth_date)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
-    `, [client_id, name, cleanCpf, birth_date]);
-
+    
+    // Check if CPF is already registered as a user
+    const userCheck = await pool.query('SELECT * FROM users WHERE cpf = $1', [cpf]);
+    if (userCheck.rows.length > 0) {
+      return res.status(400).json({ message: 'CPF já cadastrado como usuário' });
+    }
+    
+    // Create dependent
+    const result = await pool.query(
+      'INSERT INTO dependents (client_id, name, cpf, birth_date) VALUES ($1, $2, $3, $4) RETURNING *',
+      [client_id, name, cpf, birth_date]
+    );
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating dependent:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao criar dependente' });
   }
 });
 
-app.put('/api/dependents/:id', authenticate, async (req, res) => {
+// Update dependent
+app.put('/api/dependents/:id', authenticate, authorize(['client']), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, birth_date } = req.body;
-
-    const result = await pool.query(`
-      UPDATE dependents SET name = $1, birth_date = $2
-      WHERE id = $3
-      RETURNING *
-    `, [name, birth_date, id]);
-
-    if (result.rows.length === 0) {
+    
+    // Check if dependent exists and belongs to the client
+    const dependentCheck = await pool.query(
+      'SELECT * FROM dependents WHERE id = $1',
+      [id]
+    );
+    
+    if (dependentCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Dependente não encontrado' });
     }
-
+    
+    // Only allow clients to update their own dependents
+    if (req.user.id !== dependentCheck.rows[0].client_id) {
+      return res.status(403).json({ message: 'Acesso não autorizado' });
+    }
+    
+    // Update dependent
+    const result = await pool.query(
+      `UPDATE dependents SET 
+        name = COALESCE($1, name),
+        birth_date = COALESCE($2, birth_date),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3 RETURNING *`,
+      [name, birth_date, id]
+    );
+    
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error updating dependent:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao atualizar dependente' });
   }
 });
 
-app.delete('/api/dependents/:id', authenticate, async (req, res) => {
+// Delete dependent
+app.delete('/api/dependents/:id', authenticate, authorize(['client']), async (req, res) => {
   try {
     const { id } = req.params;
-
-    const result = await pool.query('DELETE FROM dependents WHERE id = $1 RETURNING id', [id]);
-
-    if (result.rows.length === 0) {
+    
+    // Check if dependent exists and belongs to the client
+    const dependentCheck = await pool.query(
+      'SELECT * FROM dependents WHERE id = $1',
+      [id]
+    );
+    
+    if (dependentCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Dependente não encontrado' });
     }
-
+    
+    // Only allow clients to delete their own dependents
+    if (req.user.id !== dependentCheck.rows[0].client_id) {
+      return res.status(403).json({ message: 'Acesso não autorizado' });
+    }
+    
+    // Delete dependent
+    await pool.query('DELETE FROM dependents WHERE id = $1', [id]);
+    
     res.json({ message: 'Dependente excluído com sucesso' });
   } catch (error) {
     console.error('Error deleting dependent:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao excluir dependente' });
   }
 });
 
-// 🔥 CLIENTS LOOKUP ROUTE
-app.get('/api/clients/lookup', authenticate, async (req, res) => {
+// Lookup dependent by CPF
+app.get('/api/dependents/lookup', authenticate, async (req, res) => {
   try {
     const { cpf } = req.query;
-
+    
     if (!cpf) {
       return res.status(400).json({ message: 'CPF é obrigatório' });
     }
-
-    const cleanCpf = cpf.toString().replace(/\D/g, '');
-
+    
+    // Find dependent
     const result = await pool.query(`
-      SELECT id, name, cpf, subscription_status
+      SELECT d.*, u.name as client_name, u.subscription_status as client_subscription_status
+      FROM dependents d
+      JOIN users u ON d.client_id = u.id
+      WHERE d.cpf = $1
+    `, [cpf]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Dependente não encontrado' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error looking up dependent:', error);
+    res.status(500).json({ message: 'Erro ao buscar dependente' });
+  }
+});
+
+// ===== CLIENT ROUTES =====
+
+// Lookup client by CPF
+app.get('/api/clients/lookup', authenticate, async (req, res) => {
+  try {
+    const { cpf } = req.query;
+    
+    if (!cpf) {
+      return res.status(400).json({ message: 'CPF é obrigatório' });
+    }
+    
+    // Find client
+    const result = await pool.query(`
+      SELECT id, name, cpf, subscription_status, subscription_expiry
       FROM users
       WHERE cpf = $1 AND 'client' = ANY(roles)
-    `, [cleanCpf]);
-
+    `, [cpf]);
+    
     if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Cliente não encontrado' });
     }
-
+    
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error looking up client:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar cliente' });
   }
 });
 
-// 🔥 PROFESSIONALS ROUTE
-app.get('/api/professionals', authenticate, async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        u.id, u.name, u.email, u.phone, u.address, u.address_number,
-        u.address_complement, u.neighborhood, u.city, u.state,
-        u.photo_url, sc.name as category_name
-      FROM users u
-      LEFT JOIN service_categories sc ON u.category_id = sc.id
-      WHERE 'professional' = ANY(u.roles)
-      ORDER BY u.name
-    `);
+// ===== PROFESSIONAL LOCATIONS ROUTES =====
 
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching professionals:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
-  }
-});
-
-// 🔥 PROFESSIONAL LOCATIONS ROUTES
+// Get professional locations
 app.get('/api/professional-locations', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM professional_locations WHERE professional_id = $1 ORDER BY is_main DESC, clinic_name',
       [req.user.id]
     );
-
+    
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching professional locations:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar locais de atendimento' });
   }
 });
 
+// Create professional location
 app.post('/api/professional-locations', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    const {
-      clinic_name, address, address_number, address_complement,
-      neighborhood, city, state, phone, is_main
+    const { 
+      clinic_name, address, address_number, address_complement, 
+      neighborhood, city, state, phone, is_main 
     } = req.body;
-
+    
+    // Validate input
     if (!clinic_name || !address || !address_number || !neighborhood || !city || !state) {
-      return res.status(400).json({ message: 'Campos obrigatórios não preenchidos' });
+      return res.status(400).json({ message: 'Nome da clínica, endereço, número, bairro, cidade e estado são obrigatórios' });
     }
-
-    // If this is set as main, unset other main locations
+    
+    // If this is the main location, update all others to not be main
     if (is_main) {
       await pool.query(
         'UPDATE professional_locations SET is_main = false WHERE professional_id = $1',
         [req.user.id]
       );
     }
-
-    const result = await pool.query(`
-      INSERT INTO professional_locations (
+    
+    // Create location
+    const result = await pool.query(
+      `INSERT INTO professional_locations (
         professional_id, clinic_name, address, address_number, address_complement,
         neighborhood, city, state, phone, is_main
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *
-    `, [
-      req.user.id, clinic_name, address, address_number, address_complement,
-      neighborhood, city, state, phone, is_main
-    ]);
-
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [
+        req.user.id, clinic_name, address, address_number, address_complement,
+        neighborhood, city, state, phone, is_main
+      ]
+    );
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating professional location:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao criar local de atendimento' });
   }
 });
 
+// Update professional location
 app.put('/api/professional-locations/:id', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      clinic_name, address, address_number, address_complement,
-      neighborhood, city, state, phone, is_main
+    const { 
+      clinic_name, address, address_number, address_complement, 
+      neighborhood, city, state, phone, is_main 
     } = req.body;
-
-    // If this is set as main, unset other main locations
+    
+    // Check if location exists and belongs to the professional
+    const locationCheck = await pool.query(
+      'SELECT * FROM professional_locations WHERE id = $1 AND professional_id = $2',
+      [id, req.user.id]
+    );
+    
+    if (locationCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Local de atendimento não encontrado' });
+    }
+    
+    // If this is the main location, update all others to not be main
     if (is_main) {
       await pool.query(
-        'UPDATE professional_locations SET is_main = false WHERE professional_id = $1 AND id != $2',
-        [req.user.id, id]
+        'UPDATE professional_locations SET is_main = false WHERE professional_id = $1',
+        [req.user.id]
       );
     }
-
-    const result = await pool.query(`
-      UPDATE professional_locations SET
-        clinic_name = $1, address = $2, address_number = $3, address_complement = $4,
-        neighborhood = $5, city = $6, state = $7, phone = $8, is_main = $9
-      WHERE id = $10 AND professional_id = $11
-      RETURNING *
-    `, [
-      clinic_name, address, address_number, address_complement,
-      neighborhood, city, state, phone, is_main, id, req.user.id
-    ]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Local não encontrado' });
-    }
-
+    
+    // Update location
+    const result = await pool.query(
+      `UPDATE professional_locations SET 
+        clinic_name = COALESCE($1, clinic_name),
+        address = COALESCE($2, address),
+        address_number = COALESCE($3, address_number),
+        address_complement = COALESCE($4, address_complement),
+        neighborhood = COALESCE($5, neighborhood),
+        city = COALESCE($6, city),
+        state = COALESCE($7, state),
+        phone = COALESCE($8, phone),
+        is_main = COALESCE($9, is_main),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $10 AND professional_id = $11 RETURNING *`,
+      [
+        clinic_name, address, address_number, address_complement,
+        neighborhood, city, state, phone, is_main,
+        id, req.user.id
+      ]
+    );
+    
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error updating professional location:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao atualizar local de atendimento' });
   }
 });
 
+// Delete professional location
 app.delete('/api/professional-locations/:id', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { id } = req.params;
-
-    const result = await pool.query(
-      'DELETE FROM professional_locations WHERE id = $1 AND professional_id = $2 RETURNING id',
+    
+    // Check if location exists and belongs to the professional
+    const locationCheck = await pool.query(
+      'SELECT * FROM professional_locations WHERE id = $1 AND professional_id = $2',
       [id, req.user.id]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Local não encontrado' });
+    
+    if (locationCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Local de atendimento não encontrado' });
     }
-
-    res.json({ message: 'Local excluído com sucesso' });
+    
+    // Delete location
+    await pool.query('DELETE FROM professional_locations WHERE id = $1', [id]);
+    
+    res.json({ message: 'Local de atendimento excluído com sucesso' });
   } catch (error) {
     console.error('Error deleting professional location:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao excluir local de atendimento' });
   }
 });
 
-// 🔥 AGENDA ROUTES
+// ===== AGENDA ROUTES =====
+
+// Get agenda subscription status
 app.get('/api/agenda/subscription-status', authenticate, authorize(['professional']), async (req, res) => {
   try {
+    // Check if professional has an active subscription
     const result = await pool.query(
       'SELECT * FROM agenda_subscriptions WHERE professional_id = $1 ORDER BY created_at DESC LIMIT 1',
       [req.user.id]
     );
-
-    if (result.rows.length === 0) {
-      return res.json({
-        status: 'none',
-        expires_at: null,
-        days_remaining: 0,
-        can_use_agenda: false
-      });
+    
+    let subscription = null;
+    
+    if (result.rows.length > 0) {
+      subscription = result.rows[0];
     }
-
-    const subscription = result.rows[0];
-    const now = new Date();
-    const expiresAt = new Date(subscription.expires_at);
-    const daysRemaining = Math.max(0, Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24)));
-
+    
+    // Calculate status
+    let status = 'pending';
+    let expiresAt = null;
+    let daysRemaining = 0;
+    let canUseAgenda = false;
+    
+    if (subscription) {
+      status = subscription.status;
+      expiresAt = subscription.expires_at;
+      
+      if (status === 'active' && expiresAt) {
+        const now = new Date();
+        const expiry = new Date(expiresAt);
+        
+        if (expiry > now) {
+          // Calculate days remaining
+          const diffTime = Math.abs(expiry.getTime() - now.getTime());
+          daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          canUseAgenda = true;
+        } else {
+          status = 'expired';
+        }
+      }
+    }
+    
     res.json({
-      status: subscription.status,
-      expires_at: subscription.expires_at,
+      status,
+      expires_at: expiresAt,
       days_remaining: daysRemaining,
-      can_use_agenda: subscription.status === 'active' && expiresAt > now,
-      last_payment: subscription.last_payment
+      can_use_agenda: canUseAgenda,
+      last_payment: subscription ? subscription.payment_id : null
     });
   } catch (error) {
     console.error('Error fetching agenda subscription status:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao verificar status da assinatura da agenda' });
   }
 });
 
+// Get schedule configuration
 app.get('/api/agenda/schedule-config', authenticate, authorize(['professional']), async (req, res) => {
   try {
+    // Check if professional has a schedule config
     const result = await pool.query(
       'SELECT * FROM schedule_configs WHERE professional_id = $1',
       [req.user.id]
     );
-
+    
     if (result.rows.length === 0) {
       // Return default config
       return res.json({
@@ -1238,865 +1532,1571 @@ app.get('/api/agenda/schedule-config', authenticate, authorize(['professional'])
         break_end: '13:00'
       });
     }
-
+    
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error fetching schedule config:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar configuração de horários' });
   }
 });
 
+// Save schedule configuration
+app.post('/api/agenda/schedule-config', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { 
+      monday_start, monday_end, tuesday_start, tuesday_end,
+      wednesday_start, wednesday_end, thursday_start, thursday_end,
+      friday_start, friday_end, saturday_start, saturday_end,
+      sunday_start, sunday_end, slot_duration, break_start, break_end
+    } = req.body;
+    
+    // Check if professional already has a schedule config
+    const configCheck = await pool.query(
+      'SELECT * FROM schedule_configs WHERE professional_id = $1',
+      [req.user.id]
+    );
+    
+    let result;
+    
+    if (configCheck.rows.length === 0) {
+      // Create new config
+      result = await pool.query(
+        `INSERT INTO schedule_configs (
+          professional_id, monday_start, monday_end, tuesday_start, tuesday_end,
+          wednesday_start, wednesday_end, thursday_start, thursday_end,
+          friday_start, friday_end, saturday_start, saturday_end,
+          sunday_start, sunday_end, slot_duration, break_start, break_end
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+        [
+          req.user.id, monday_start, monday_end, tuesday_start, tuesday_end,
+          wednesday_start, wednesday_end, thursday_start, thursday_end,
+          friday_start, friday_end, saturday_start, saturday_end,
+          sunday_start, sunday_end, slot_duration, break_start, break_end
+        ]
+      );
+    } else {
+      // Update existing config
+      result = await pool.query(
+        `UPDATE schedule_configs SET 
+          monday_start = $1, monday_end = $2, tuesday_start = $3, tuesday_end = $4,
+          wednesday_start = $5, wednesday_end = $6, thursday_start = $7, thursday_end = $8,
+          friday_start = $9, friday_end = $10, saturday_start = $11, saturday_end = $12,
+          sunday_start = $13, sunday_end = $14, slot_duration = $15, break_start = $16, break_end = $17,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE professional_id = $18 RETURNING *`,
+        [
+          monday_start, monday_end, tuesday_start, tuesday_end,
+          wednesday_start, wednesday_end, thursday_start, thursday_end,
+          friday_start, friday_end, saturday_start, saturday_end,
+          sunday_start, sunday_end, slot_duration, break_start, break_end,
+          req.user.id
+        ]
+      );
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error saving schedule config:', error);
+    res.status(500).json({ message: 'Erro ao salvar configuração de horários' });
+  }
+});
+
+// Get agenda patients
 app.get('/api/agenda/patients', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { include_archived } = req.query;
     
-    let query = `
-      SELECT * FROM agenda_patients 
-      WHERE professional_id = $1
-    `;
+    let query = 'SELECT * FROM agenda_patients WHERE professional_id = $1';
     
-    if (include_archived !== 'true') {
+    // Only include non-archived patients by default
+    if (!include_archived || include_archived !== 'true') {
       query += ' AND is_archived = false';
     }
     
     query += ' ORDER BY name';
-
+    
     const result = await pool.query(query, [req.user.id]);
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching agenda patients:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar pacientes' });
   }
 });
 
+// Create agenda patient
 app.post('/api/agenda/patients', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    const {
-      name, cpf, email, phone, birth_date, address, address_number,
+    const { 
+      name, cpf, phone, email, birth_date, address, address_number,
       address_complement, neighborhood, city, state, notes
     } = req.body;
-
+    
+    // Validate input
     if (!name || !cpf) {
       return res.status(400).json({ message: 'Nome e CPF são obrigatórios' });
     }
-
-    const cleanCpf = cpf.replace(/\D/g, '');
-
-    const result = await pool.query(`
-      INSERT INTO agenda_patients (
-        professional_id, name, cpf, email, phone, birth_date,
-        address, address_number, address_complement, neighborhood,
-        city, state, notes, is_convenio_patient
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, false)
-      RETURNING *
-    `, [
-      req.user.id, name, cleanCpf, email, phone, birth_date,
-      address, address_number, address_complement, neighborhood,
-      city, state, notes
-    ]);
-
+    
+    // Check if patient with this CPF already exists for this professional
+    const patientCheck = await pool.query(
+      'SELECT * FROM agenda_patients WHERE professional_id = $1 AND cpf = $2',
+      [req.user.id, cpf]
+    );
+    
+    if (patientCheck.rows.length > 0) {
+      return res.status(400).json({ message: 'Paciente com este CPF já cadastrado' });
+    }
+    
+    // Create patient
+    const result = await pool.query(
+      `INSERT INTO agenda_patients (
+        professional_id, name, cpf, phone, email, birth_date, address, address_number,
+        address_complement, neighborhood, city, state, notes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [
+        req.user.id, name, cpf, phone, email, birth_date, address, address_number,
+        address_complement, neighborhood, city, state, notes
+      ]
+    );
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating agenda patient:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao criar paciente' });
   }
 });
 
+// Update agenda patient
 app.put('/api/agenda/patients/:id', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { id } = req.params;
     const { notes } = req.body;
-
-    const result = await pool.query(`
-      UPDATE agenda_patients SET notes = $1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2 AND professional_id = $3
-      RETURNING *
-    `, [notes, id, req.user.id]);
-
-    if (result.rows.length === 0) {
+    
+    // Check if patient exists and belongs to the professional
+    const patientCheck = await pool.query(
+      'SELECT * FROM agenda_patients WHERE id = $1 AND professional_id = $2',
+      [id, req.user.id]
+    );
+    
+    if (patientCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Paciente não encontrado' });
     }
-
+    
+    // Update patient
+    const result = await pool.query(
+      `UPDATE agenda_patients SET 
+        notes = COALESCE($1, notes),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2 AND professional_id = $3 RETURNING *`,
+      [notes, id, req.user.id]
+    );
+    
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error updating agenda patient:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao atualizar paciente' });
   }
 });
 
+// Archive/unarchive agenda patient
 app.put('/api/agenda/patients/:id/archive', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { id } = req.params;
     const { is_archived } = req.body;
-
-    const result = await pool.query(`
-      UPDATE agenda_patients SET is_archived = $1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2 AND professional_id = $3
-      RETURNING *
-    `, [is_archived, id, req.user.id]);
-
-    if (result.rows.length === 0) {
+    
+    // Check if patient exists and belongs to the professional
+    const patientCheck = await pool.query(
+      'SELECT * FROM agenda_patients WHERE id = $1 AND professional_id = $2',
+      [id, req.user.id]
+    );
+    
+    if (patientCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Paciente não encontrado' });
     }
-
+    
+    // Update patient
+    const result = await pool.query(
+      `UPDATE agenda_patients SET 
+        is_archived = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2 AND professional_id = $3 RETURNING *`,
+      [is_archived, id, req.user.id]
+    );
+    
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error archiving agenda patient:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao arquivar paciente' });
   }
 });
 
+// Lookup agenda patient by CPF
+app.get('/api/agenda/patients/lookup', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { cpf } = req.query;
+    
+    if (!cpf) {
+      return res.status(400).json({ message: 'CPF é obrigatório' });
+    }
+    
+    // Find patient
+    const result = await pool.query(
+      'SELECT * FROM agenda_patients WHERE professional_id = $1 AND cpf = $2',
+      [req.user.id, cpf]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Paciente não encontrado' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error looking up agenda patient:', error);
+    res.status(500).json({ message: 'Erro ao buscar paciente' });
+  }
+});
+
+// Get appointments
 app.get('/api/agenda/appointments', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-
-    let query = `
-      SELECT 
-        a.id, a.date, a.status, a.notes,
-        a.patient_id, ap.name as patient_name, ap.phone as patient_phone,
-        a.is_convenio_patient
-      FROM appointments a
-      LEFT JOIN agenda_patients ap ON a.patient_id = ap.id
-      WHERE a.professional_id = $1
-    `;
-
-    const params = [req.user.id];
-
-    if (start_date && end_date) {
-      query += ' AND a.date >= $2 AND a.date <= $3';
-      params.push(start_date, end_date);
+    
+    // Validate input
+    if (!start_date || !end_date) {
+      return res.status(400).json({ message: 'Data inicial e final são obrigatórias' });
     }
-
-    query += ' ORDER BY a.date';
-
-    const result = await pool.query(query, params);
+    
+    // Get appointments
+    const result = await pool.query(`
+      SELECT a.*, p.name as patient_name, p.phone as patient_phone, 
+        CASE WHEN p.id IN (
+          SELECT id FROM agenda_patients WHERE professional_id = $1
+        ) THEN false ELSE true END as is_convenio_patient
+      FROM appointments a
+      LEFT JOIN agenda_patients p ON a.patient_id = p.id
+      WHERE a.professional_id = $1 AND a.date BETWEEN $2 AND $3
+      ORDER BY a.date
+    `, [req.user.id, start_date, end_date]);
+    
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching appointments:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar agendamentos' });
   }
 });
 
+// Get clinic appointments
+app.get('/api/clinic/agenda/appointments', authenticate, authorize(['clinic']), async (req, res) => {
+  try {
+    const { professional_id, start_date, end_date } = req.query;
+    
+    // Validate input
+    if (!professional_id || !start_date || !end_date) {
+      return res.status(400).json({ message: 'ID do profissional, data inicial e final são obrigatórias' });
+    }
+    
+    // Check if professional belongs to this clinic
+    const professionalCheck = await pool.query(
+      'SELECT * FROM clinic_professionals WHERE clinic_id = $1 AND professional_id = $2',
+      [req.user.id, professional_id]
+    );
+    
+    if (professionalCheck.rows.length === 0) {
+      return res.status(403).json({ message: 'Este profissional não pertence à sua clínica' });
+    }
+    
+    // Get appointments
+    const result = await pool.query(`
+      SELECT a.*, p.name as patient_name, p.phone as patient_phone, 
+        CASE WHEN p.id IN (
+          SELECT id FROM agenda_patients WHERE professional_id = $1
+        ) THEN false ELSE true END as is_convenio_patient,
+        u.name as professional_name
+      FROM appointments a
+      LEFT JOIN agenda_patients p ON a.patient_id = p.id
+      LEFT JOIN users u ON a.professional_id = u.id
+      WHERE a.professional_id = $1 AND a.date BETWEEN $2 AND $3
+      ORDER BY a.date
+    `, [professional_id, start_date, end_date]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching clinic appointments:', error);
+    res.status(500).json({ message: 'Erro ao buscar agendamentos' });
+  }
+});
+
+// Create appointment
 app.post('/api/agenda/appointments', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    const { patient_id, date, notes } = req.body;
-
+    const { patient_id, date, status, notes } = req.body;
+    
+    // Validate input
     if (!patient_id || !date) {
-      return res.status(400).json({ message: 'Paciente e data são obrigatórios' });
+      return res.status(400).json({ message: 'ID do paciente e data são obrigatórios' });
     }
-
-    const result = await pool.query(`
-      INSERT INTO appointments (professional_id, patient_id, date, notes, status)
-      VALUES ($1, $2, $3, $4, 'scheduled')
-      RETURNING *
-    `, [req.user.id, patient_id, date, notes]);
-
+    
+    // Check if patient exists and belongs to the professional
+    const patientCheck = await pool.query(
+      'SELECT * FROM agenda_patients WHERE id = $1 AND professional_id = $2',
+      [patient_id, req.user.id]
+    );
+    
+    if (patientCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Paciente não encontrado' });
+    }
+    
+    // Create appointment
+    const result = await pool.query(
+      `INSERT INTO appointments (professional_id, patient_id, date, status, notes)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [req.user.id, patient_id, date, status || 'scheduled', notes]
+    );
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating appointment:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao criar agendamento' });
   }
 });
 
-// 🔥 MEDICAL RECORDS ROUTES
+// Update appointment
+app.put('/api/agenda/appointments/:id', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+    
+    // Check if appointment exists and belongs to the professional
+    const appointmentCheck = await pool.query(
+      'SELECT * FROM appointments WHERE id = $1 AND professional_id = $2',
+      [id, req.user.id]
+    );
+    
+    if (appointmentCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Agendamento não encontrado' });
+    }
+    
+    // Update appointment
+    const result = await pool.query(
+      `UPDATE appointments SET 
+        status = COALESCE($1, status),
+        notes = COALESCE($2, notes),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3 AND professional_id = $4 RETURNING *`,
+      [status, notes, id, req.user.id]
+    );
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating appointment:', error);
+    res.status(500).json({ message: 'Erro ao atualizar agendamento' });
+  }
+});
+
+// Delete appointment
+app.delete('/api/agenda/appointments/:id', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if appointment exists and belongs to the professional
+    const appointmentCheck = await pool.query(
+      'SELECT * FROM appointments WHERE id = $1 AND professional_id = $2',
+      [id, req.user.id]
+    );
+    
+    if (appointmentCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Agendamento não encontrado' });
+    }
+    
+    // Delete appointment
+    await pool.query('DELETE FROM appointments WHERE id = $1', [id]);
+    
+    res.json({ message: 'Agendamento excluído com sucesso' });
+  } catch (error) {
+    console.error('Error deleting appointment:', error);
+    res.status(500).json({ message: 'Erro ao excluir agendamento' });
+  }
+});
+
+// ===== MEDICAL RECORDS ROUTES =====
+
+// Get medical records by patient ID
 app.get('/api/medical-records/patient/:patientId', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { patientId } = req.params;
-
+    
+    // Get medical records
     const result = await pool.query(`
-      SELECT 
-        mr.*, c.date as consultation_date, s.name as service_name,
-        ap.name as patient_name, ap.cpf as patient_cpf,
-        u.name as professional_name, u.professional_registration
+      SELECT mr.*, 
+        u.name as professional_name,
+        u.professional_registration,
+        s.name as service_name,
+        COALESCE(ap.name, COALESCE(d.name, c.name)) as patient_name,
+        COALESCE(ap.cpf, COALESCE(d.cpf, c.cpf)) as patient_cpf,
+        COALESCE(cons.date, app.date) as consultation_date
       FROM medical_records mr
-      LEFT JOIN consultations c ON mr.consultation_id = c.id
-      LEFT JOIN services s ON c.service_id = s.id
-      LEFT JOIN agenda_patients ap ON mr.patient_id = ap.id
       LEFT JOIN users u ON mr.professional_id = u.id
+      LEFT JOIN agenda_patients ap ON mr.patient_id = ap.id AND mr.professional_id = ap.professional_id
+      LEFT JOIN consultations cons ON mr.consultation_id = cons.id
+      LEFT JOIN appointments app ON mr.consultation_id = app.id
+      LEFT JOIN services s ON cons.service_id = s.id
+      LEFT JOIN users c ON cons.client_id = c.id
+      LEFT JOIN dependents d ON cons.dependent_id = d.id
       WHERE mr.patient_id = $1 AND mr.professional_id = $2
       ORDER BY mr.created_at DESC
     `, [patientId, req.user.id]);
-
+    
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching medical records:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao buscar prontuários' });
   }
 });
 
+// Get clinic medical records by patient ID
+app.get('/api/clinic/medical-records/patient/:patientId', authenticate, authorize(['clinic']), async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    // Get medical records
+    const result = await pool.query(`
+      SELECT mr.*, 
+        u.name as professional_name,
+        u.professional_registration,
+        s.name as service_name,
+        COALESCE(ap.name, COALESCE(d.name, c.name)) as patient_name,
+        COALESCE(ap.cpf, COALESCE(d.cpf, c.cpf)) as patient_cpf,
+        COALESCE(cons.date, app.date) as consultation_date
+      FROM medical_records mr
+      LEFT JOIN users u ON mr.professional_id = u.id
+      LEFT JOIN agenda_patients ap ON mr.patient_id = ap.id AND mr.professional_id = ap.professional_id
+      LEFT JOIN consultations cons ON mr.consultation_id = cons.id
+      LEFT JOIN appointments app ON mr.consultation_id = app.id
+      LEFT JOIN services s ON cons.service_id = s.id
+      LEFT JOIN users c ON cons.client_id = c.id
+      LEFT JOIN dependents d ON cons.dependent_id = d.id
+      WHERE mr.patient_id = $1 AND mr.professional_id IN (
+        SELECT professional_id FROM clinic_professionals WHERE clinic_id = $2
+      )
+      ORDER BY mr.created_at DESC
+    `, [patientId, req.user.id]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching clinic medical records:', error);
+    res.status(500).json({ message: 'Erro ao buscar prontuários' });
+  }
+});
+
+// Create medical record
 app.post('/api/medical-records', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    const {
-      patient_id, chief_complaint, anamnesis, physical_examination,
+    const { 
+      patient_id, consultation_id, chief_complaint, anamnesis, physical_examination,
       diagnosis, treatment_plan, clinical_evolution, internal_notes
     } = req.body;
-
+    
+    // Validate input
     if (!patient_id) {
       return res.status(400).json({ message: 'ID do paciente é obrigatório' });
     }
-
-    const result = await pool.query(`
-      INSERT INTO medical_records (
-        patient_id, professional_id, chief_complaint, anamnesis,
-        physical_examination, diagnosis, treatment_plan,
-        clinical_evolution, internal_notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *
-    `, [
-      patient_id, req.user.id, chief_complaint, anamnesis,
-      physical_examination, diagnosis, treatment_plan,
-      clinical_evolution, internal_notes
-    ]);
-
+    
+    // Create medical record
+    const result = await pool.query(
+      `INSERT INTO medical_records (
+        patient_id, professional_id, consultation_id, chief_complaint, anamnesis,
+        physical_examination, diagnosis, treatment_plan, clinical_evolution, internal_notes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [
+        patient_id, req.user.id, consultation_id, chief_complaint, anamnesis,
+        physical_examination, diagnosis, treatment_plan, clinical_evolution, internal_notes
+      ]
+    );
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating medical record:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao criar prontuário' });
   }
 });
 
+// Update medical record
 app.put('/api/medical-records/:id', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { id } = req.params;
-    const {
+    const { 
       chief_complaint, anamnesis, physical_examination,
       diagnosis, treatment_plan, clinical_evolution, internal_notes
     } = req.body;
-
-    const result = await pool.query(`
-      UPDATE medical_records SET
-        chief_complaint = $1, anamnesis = $2, physical_examination = $3,
-        diagnosis = $4, treatment_plan = $5, clinical_evolution = $6,
-        internal_notes = $7, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $8 AND professional_id = $9
-      RETURNING *
-    `, [
-      chief_complaint, anamnesis, physical_examination,
-      diagnosis, treatment_plan, clinical_evolution, internal_notes,
-      id, req.user.id
-    ]);
-
-    if (result.rows.length === 0) {
+    
+    // Check if medical record exists and belongs to the professional
+    const recordCheck = await pool.query(
+      'SELECT * FROM medical_records WHERE id = $1 AND professional_id = $2',
+      [id, req.user.id]
+    );
+    
+    if (recordCheck.rows.length === 0) {
       return res.status(404).json({ message: 'Prontuário não encontrado' });
     }
-
+    
+    // Update medical record
+    const result = await pool.query(
+      `UPDATE medical_records SET 
+        chief_complaint = COALESCE($1, chief_complaint),
+        anamnesis = COALESCE($2, anamnesis),
+        physical_examination = COALESCE($3, physical_examination),
+        diagnosis = COALESCE($4, diagnosis),
+        treatment_plan = COALESCE($5, treatment_plan),
+        clinical_evolution = COALESCE($6, clinical_evolution),
+        internal_notes = COALESCE($7, internal_notes),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $8 AND professional_id = $9 RETURNING *`,
+      [
+        chief_complaint, anamnesis, physical_examination,
+        diagnosis, treatment_plan, clinical_evolution, internal_notes,
+        id, req.user.id
+      ]
+    );
+    
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error updating medical record:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    res.status(500).json({ message: 'Erro ao atualizar prontuário' });
   }
 });
 
-// 🔥 REPORTS ROUTES
-app.get('/api/reports/revenue', authenticate, authorize(['admin']), async (req, res) => {
-  try {
-    const { start_date, end_date } = req.query;
+// ===== REPORTS ROUTES =====
 
-    if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Datas de início e fim são obrigatórias' });
-    }
-
-    const result = await pool.query(`
-      SELECT 
-        SUM(c.value) as total_revenue,
-        COUNT(*) as total_consultations,
-        json_agg(
-          json_build_object(
-            'professional_name', p.name,
-            'professional_percentage', p.percentage,
-            'revenue', prof_revenue.revenue,
-            'consultation_count', prof_revenue.consultation_count,
-            'professional_payment', ROUND((prof_revenue.revenue * p.percentage / 100)::numeric, 2),
-            'clinic_revenue', ROUND((prof_revenue.revenue * (100 - p.percentage) / 100)::numeric, 2)
-          )
-        ) as revenue_by_professional,
-        (
-          SELECT json_agg(
-            json_build_object(
-              'service_name', s.name,
-              'revenue', service_revenue.revenue,
-              'consultation_count', service_revenue.consultation_count
-            )
-          )
-          FROM (
-            SELECT 
-              c2.service_id,
-              SUM(c2.value) as revenue,
-              COUNT(*) as consultation_count
-            FROM consultations c2
-            WHERE c2.date >= $1 AND c2.date <= $2
-            GROUP BY c2.service_id
-          ) service_revenue
-          JOIN services s ON service_revenue.service_id = s.id
-        ) as revenue_by_service
-      FROM consultations c
-      JOIN users p ON c.professional_id = p.id
-      JOIN (
-        SELECT 
-          professional_id,
-          SUM(value) as revenue,
-          COUNT(*) as consultation_count
-        FROM consultations
-        WHERE date >= $1 AND date <= $2
-        GROUP BY professional_id
-      ) prof_revenue ON c.professional_id = prof_revenue.professional_id
-      WHERE c.date >= $1 AND c.date <= $2
-      GROUP BY ()
-    `, [start_date, end_date]);
-
-    if (result.rows.length === 0 || !result.rows[0].total_revenue) {
-      return res.json({
-        total_revenue: 0,
-        revenue_by_professional: [],
-        revenue_by_service: []
-      });
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Error generating revenue report:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
-  }
-});
-
+// Get professional revenue report
 app.get('/api/reports/professional-revenue', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-
+    
+    // Validate input
     if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Datas de início e fim são obrigatórias' });
+      return res.status(400).json({ message: 'Data inicial e final são obrigatórias' });
     }
-
-    const professionalId = req.user.id;
-
+    
     // Get professional percentage
     const professionalResult = await pool.query(
       'SELECT percentage FROM users WHERE id = $1',
-      [professionalId]
+      [req.user.id]
     );
-
+    
     const percentage = professionalResult.rows[0]?.percentage || 50;
-
-    const result = await pool.query(`
-      SELECT 
-        c.id, c.date, c.value,
-        CASE 
-          WHEN c.dependent_id IS NOT NULL THEN d.name
-          ELSE u.name
-        END as client_name,
+    
+    // Get consultations
+    const consultationsResult = await pool.query(`
+      SELECT c.*, 
         s.name as service_name,
-        ROUND((c.value * (100 - $3) / 100)::numeric, 2) as amount_to_pay
+        COALESCE(d.name, u.name) as client_name,
+        (c.value * $1 / 100) as professional_payment,
+        (c.value * (100 - $1) / 100) as amount_to_pay
       FROM consultations c
       LEFT JOIN users u ON c.client_id = u.id
       LEFT JOIN dependents d ON c.dependent_id = d.id
       LEFT JOIN services s ON c.service_id = s.id
-      WHERE c.professional_id = $1 AND c.date >= $2 AND c.date <= $4
+      WHERE c.professional_id = $2 AND c.date BETWEEN $3 AND $4
       ORDER BY c.date DESC
-    `, [professionalId, start_date, percentage, end_date]);
-
-    const consultations = result.rows;
+    `, [percentage, req.user.id, start_date, end_date]);
+    
+    // Calculate summary
+    const consultations = consultationsResult.rows;
     const totalRevenue = consultations.reduce((sum, c) => sum + parseFloat(c.value), 0);
-    const totalAmountToPay = consultations.reduce((sum, c) => sum + parseFloat(c.amount_to_pay), 0);
-
+    const consultationCount = consultations.length;
+    const amountToPay = consultations.reduce((sum, c) => sum + parseFloat(c.amount_to_pay), 0);
+    
     res.json({
       summary: {
         professional_percentage: percentage,
         total_revenue: totalRevenue,
-        consultation_count: consultations.length,
-        amount_to_pay: totalAmountToPay
+        consultation_count: consultationCount,
+        amount_to_pay: amountToPay
       },
-      consultations: consultations
+      consultations
     });
   } catch (error) {
-    console.error('Error generating professional revenue report:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    console.error('Error fetching professional revenue report:', error);
+    res.status(500).json({ message: 'Erro ao gerar relatório de faturamento' });
   }
 });
 
+// Get professional consultations report
 app.get('/api/reports/professional-consultations', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-
+    
+    // Validate input
     if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Datas de início e fim são obrigatórias' });
+      return res.status(400).json({ message: 'Data inicial e final são obrigatórias' });
     }
-
-    const professionalId = req.user.id;
-
+    
     // Get professional percentage
     const professionalResult = await pool.query(
       'SELECT percentage FROM users WHERE id = $1',
-      [professionalId]
+      [req.user.id]
     );
-
+    
     const percentage = professionalResult.rows[0]?.percentage || 50;
-
-    const result = await pool.query(`
+    
+    // Get consultations
+    const consultationsResult = await pool.query(`
       SELECT 
-        c.id, c.consultation_id, c.date, c.value as total_value,
-        CASE 
-          WHEN c.dependent_id IS NOT NULL THEN d.name
-          ELSE u.name
-        END as patient_name,
+        c.id as consultation_id,
+        c.date,
+        COALESCE(d.name, u.name) as patient_name,
         s.name as service_name,
-        ROUND((c.value * (100 - $3) / 100)::numeric, 2) as amount_to_pay,
-        CASE 
-          WHEN c.client_id IS NOT NULL OR c.dependent_id IS NOT NULL THEN true
-          ELSE false
-        END as is_convenio_patient,
-        CASE 
-          WHEN mr.id IS NOT NULL THEN true
-          ELSE false
-        END as has_medical_record
+        c.value as total_value,
+        (c.value * (100 - $1) / 100) as amount_to_pay,
+        CASE WHEN d.id IS NULL THEN false ELSE true END as is_convenio_patient,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM medical_records mr WHERE mr.consultation_id = c.id
+        ) THEN true ELSE false END as has_medical_record
       FROM consultations c
       LEFT JOIN users u ON c.client_id = u.id
       LEFT JOIN dependents d ON c.dependent_id = d.id
       LEFT JOIN services s ON c.service_id = s.id
-      LEFT JOIN medical_records mr ON c.id = mr.consultation_id
-      WHERE c.professional_id = $1 AND c.date >= $2 AND c.date <= $4
+      WHERE c.professional_id = $2 AND c.date BETWEEN $3 AND $4
       ORDER BY c.date DESC
-    `, [professionalId, start_date, percentage, end_date]);
-
-    const consultations = result.rows;
-    const convenioConsultations = consultations.filter(c => c.is_convenio_patient);
-    const particularConsultations = consultations.filter(c => !c.is_convenio_patient);
-
+    `, [percentage, req.user.id, start_date, end_date]);
+    
+    // Calculate summary
+    const consultations = consultationsResult.rows;
+    const totalConsultations = consultations.length;
+    const convenioConsultations = consultations.filter(c => c.is_convenio_patient).length;
+    const particularConsultations = totalConsultations - convenioConsultations;
     const totalRevenue = consultations.reduce((sum, c) => sum + parseFloat(c.total_value), 0);
-    const convenioRevenue = convenioConsultations.reduce((sum, c) => sum + parseFloat(c.total_value), 0);
-    const particularRevenue = particularConsultations.reduce((sum, c) => sum + parseFloat(c.total_value), 0);
-    const totalAmountToPay = convenioConsultations.reduce((sum, c) => sum + parseFloat(c.amount_to_pay), 0);
-
+    const convenioRevenue = consultations.filter(c => c.is_convenio_patient).reduce((sum, c) => sum + parseFloat(c.total_value), 0);
+    const particularRevenue = totalRevenue - convenioRevenue;
+    const amountToPay = consultations.filter(c => c.is_convenio_patient).reduce((sum, c) => sum + parseFloat(c.amount_to_pay), 0);
+    
     res.json({
       summary: {
-        total_consultations: consultations.length,
-        convenio_consultations: convenioConsultations.length,
-        particular_consultations: particularConsultations.length,
+        total_consultations: totalConsultations,
+        convenio_consultations: convenioConsultations,
+        particular_consultations: particularConsultations,
         total_revenue: totalRevenue,
         convenio_revenue: convenioRevenue,
         particular_revenue: particularRevenue,
-        amount_to_pay: totalAmountToPay
+        amount_to_pay: amountToPay
       },
-      consultations: consultations
+      consultations
     });
   } catch (error) {
-    console.error('Error generating professional consultations report:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    console.error('Error fetching professional consultations report:', error);
+    res.status(500).json({ message: 'Erro ao gerar relatório de consultas' });
   }
 });
 
-app.get('/api/reports/new-clients', authenticate, authorize(['admin']), async (req, res) => {
+// Get admin revenue report
+app.get('/api/reports/revenue', authenticate, authorize(['admin']), async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-
+    
+    // Validate input
     if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Datas de início e fim são obrigatórias' });
+      return res.status(400).json({ message: 'Data inicial e final são obrigatórias' });
     }
-
+    
+    // Get consultations with professional data
     const result = await pool.query(`
       SELECT 
-        COUNT(*) as total_new_clients,
-        COUNT(*) * 250 as subscription_revenue,
-        json_agg(
-          json_build_object(
-            'month', TO_CHAR(created_at, 'YYYY-MM'),
-            'count', monthly_count,
-            'revenue', monthly_count * 250
-          )
-        ) as clients_by_month
-      FROM (
-        SELECT 
-          created_at,
-          COUNT(*) OVER (PARTITION BY TO_CHAR(created_at, 'YYYY-MM')) as monthly_count
-        FROM users
-        WHERE 'client' = ANY(roles) 
-        AND created_at >= $1 
-        AND created_at <= $2
-      ) monthly_data
+        c.*,
+        u.name as professional_name,
+        u.percentage as professional_percentage,
+        s.name as service_name,
+        (c.value * u.percentage / 100) as professional_payment,
+        (c.value * (100 - u.percentage) / 100) as clinic_revenue
+      FROM consultations c
+      JOIN users u ON c.professional_id = u.id
+      JOIN services s ON c.service_id = s.id
+      WHERE c.date BETWEEN $1 AND $2
+      ORDER BY c.date DESC
     `, [start_date, end_date]);
-
-    if (result.rows.length === 0) {
-      return res.json({
-        total_new_clients: 0,
-        subscription_revenue: 0,
-        clients_by_month: []
-      });
-    }
-
-    res.json(result.rows[0]);
+    
+    const consultations = result.rows;
+    
+    // Calculate total revenue
+    const totalRevenue = consultations.reduce((sum, c) => sum + parseFloat(c.value), 0);
+    
+    // Group by professional
+    const professionalRevenue = {};
+    consultations.forEach(c => {
+      if (!professionalRevenue[c.professional_id]) {
+        professionalRevenue[c.professional_id] = {
+          professional_id: c.professional_id,
+          professional_name: c.professional_name,
+          professional_percentage: c.professional_percentage,
+          revenue: 0,
+          consultation_count: 0,
+          professional_payment: 0,
+          clinic_revenue: 0
+        };
+      }
+      
+      professionalRevenue[c.professional_id].revenue += parseFloat(c.value);
+      professionalRevenue[c.professional_id].consultation_count += 1;
+      professionalRevenue[c.professional_id].professional_payment += parseFloat(c.professional_payment);
+      professionalRevenue[c.professional_id].clinic_revenue += parseFloat(c.clinic_revenue);
+    });
+    
+    // Group by service
+    const serviceRevenue = {};
+    consultations.forEach(c => {
+      if (!serviceRevenue[c.service_id]) {
+        serviceRevenue[c.service_id] = {
+          service_id: c.service_id,
+          service_name: c.service_name,
+          revenue: 0,
+          consultation_count: 0
+        };
+      }
+      
+      serviceRevenue[c.service_id].revenue += parseFloat(c.value);
+      serviceRevenue[c.service_id].consultation_count += 1;
+    });
+    
+    res.json({
+      total_revenue: totalRevenue,
+      revenue_by_professional: Object.values(professionalRevenue),
+      revenue_by_service: Object.values(serviceRevenue)
+    });
   } catch (error) {
-    console.error('Error generating new clients report:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    console.error('Error fetching revenue report:', error);
+    res.status(500).json({ message: 'Erro ao gerar relatório de faturamento' });
   }
 });
 
+// Get admin professional revenue summary
 app.get('/api/reports/professional-revenue-summary', authenticate, authorize(['admin']), async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-
+    
+    // Validate input
     if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Datas de início e fim são obrigatórias' });
+      return res.status(400).json({ message: 'Data inicial e final são obrigatórias' });
     }
-
+    
+    // Get consultations with professional data
     const result = await pool.query(`
       SELECT 
-        SUM(c.value) as total_revenue,
-        json_agg(
-          json_build_object(
-            'professional_name', p.name,
-            'professional_percentage', p.percentage,
-            'revenue', prof_revenue.revenue,
-            'consultation_count', prof_revenue.consultation_count,
-            'professional_payment', ROUND((prof_revenue.revenue * p.percentage / 100)::numeric, 2),
-            'clinic_revenue', ROUND((prof_revenue.revenue * (100 - p.percentage) / 100)::numeric, 2)
-          )
-        ) as revenue_by_professional,
-        (
-          SELECT json_agg(
-            json_build_object(
-              'service_name', s.name,
-              'revenue', service_revenue.revenue,
-              'consultation_count', service_revenue.consultation_count
-            )
-          )
-          FROM (
-            SELECT 
-              c2.service_id,
-              SUM(c2.value) as revenue,
-              COUNT(*) as consultation_count
-            FROM consultations c2
-            WHERE c2.date >= $1 AND c2.date <= $2
-            GROUP BY c2.service_id
-          ) service_revenue
-          JOIN services s ON service_revenue.service_id = s.id
-        ) as revenue_by_service
+        c.*,
+        u.name as professional_name,
+        u.percentage as professional_percentage,
+        s.name as service_name,
+        (c.value * u.percentage / 100) as professional_payment,
+        (c.value * (100 - u.percentage) / 100) as clinic_revenue
       FROM consultations c
-      JOIN users p ON c.professional_id = p.id
-      JOIN (
-        SELECT 
-          professional_id,
-          SUM(value) as revenue,
-          COUNT(*) as consultation_count
-        FROM consultations
-        WHERE date >= $1 AND date <= $2
-        GROUP BY professional_id
-      ) prof_revenue ON c.professional_id = prof_revenue.professional_id
-      WHERE c.date >= $1 AND c.date <= $2
+      JOIN users u ON c.professional_id = u.id
+      JOIN services s ON c.service_id = s.id
+      WHERE c.date BETWEEN $1 AND $2
+      ORDER BY c.date DESC
     `, [start_date, end_date]);
-
-    if (result.rows.length === 0 || !result.rows[0].total_revenue) {
-      return res.json({
-        total_revenue: 0,
-        revenue_by_professional: [],
-        revenue_by_service: []
-      });
-    }
-
-    res.json(result.rows[0]);
+    
+    const consultations = result.rows;
+    
+    // Calculate total revenue
+    const totalRevenue = consultations.reduce((sum, c) => sum + parseFloat(c.value), 0);
+    
+    // Group by professional
+    const professionalRevenue = {};
+    consultations.forEach(c => {
+      if (!professionalRevenue[c.professional_id]) {
+        professionalRevenue[c.professional_id] = {
+          professional_id: c.professional_id,
+          professional_name: c.professional_name,
+          professional_percentage: c.professional_percentage,
+          revenue: 0,
+          consultation_count: 0,
+          professional_payment: 0,
+          clinic_revenue: 0
+        };
+      }
+      
+      professionalRevenue[c.professional_id].revenue += parseFloat(c.value);
+      professionalRevenue[c.professional_id].consultation_count += 1;
+      professionalRevenue[c.professional_id].professional_payment += parseFloat(c.professional_payment);
+      professionalRevenue[c.professional_id].clinic_revenue += parseFloat(c.clinic_revenue);
+    });
+    
+    // Group by service
+    const serviceRevenue = {};
+    consultations.forEach(c => {
+      if (!serviceRevenue[c.service_id]) {
+        serviceRevenue[c.service_id] = {
+          service_id: c.service_id,
+          service_name: c.service_name,
+          revenue: 0,
+          consultation_count: 0
+        };
+      }
+      
+      serviceRevenue[c.service_id].revenue += parseFloat(c.value);
+      serviceRevenue[c.service_id].consultation_count += 1;
+    });
+    
+    res.json({
+      total_revenue: totalRevenue,
+      revenue_by_professional: Object.values(professionalRevenue),
+      revenue_by_service: Object.values(serviceRevenue)
+    });
   } catch (error) {
-    console.error('Error generating professional revenue summary:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    console.error('Error fetching professional revenue summary:', error);
+    res.status(500).json({ message: 'Erro ao gerar resumo de faturamento por profissional' });
   }
 });
 
+// Get admin new clients report
+app.get('/api/reports/new-clients', authenticate, authorize(['admin']), async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+    
+    // Validate input
+    if (!start_date || !end_date) {
+      return res.status(400).json({ message: 'Data inicial e final são obrigatórias' });
+    }
+    
+    // Get new clients
+    const result = await pool.query(`
+      SELECT 
+        id, name, cpf, email, phone, created_at,
+        subscription_status, subscription_expiry
+      FROM users
+      WHERE 'client' = ANY(roles)
+        AND created_at BETWEEN $1 AND $2
+      ORDER BY created_at DESC
+    `, [start_date, end_date]);
+    
+    const clients = result.rows;
+    
+    // Calculate subscription revenue (R$250 per client)
+    const subscriptionRevenue = clients.length * 250;
+    
+    // Group by month
+    const clientsByMonth = {};
+    clients.forEach(client => {
+      const date = new Date(client.created_at);
+      const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!clientsByMonth[month]) {
+        clientsByMonth[month] = {
+          month,
+          count: 0,
+          revenue: 0
+        };
+      }
+      
+      clientsByMonth[month].count += 1;
+      clientsByMonth[month].revenue += 250; // R$250 per client
+    });
+    
+    res.json({
+      total_new_clients: clients.length,
+      subscription_revenue: subscriptionRevenue,
+      clients_by_month: Object.values(clientsByMonth).sort((a, b) => a.month.localeCompare(b.month))
+    });
+  } catch (error) {
+    console.error('Error fetching new clients report:', error);
+    res.status(500).json({ message: 'Erro ao gerar relatório de novos clientes' });
+  }
+});
+
+// Get admin total revenue report
 app.get('/api/reports/total-revenue', authenticate, authorize(['admin']), async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-
+    
+    // Validate input
     if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Datas de início e fim são obrigatórias' });
+      return res.status(400).json({ message: 'Data inicial e final são obrigatórias' });
     }
-
-    // Get subscription revenue (new clients * 250)
-    const subscriptionResult = await pool.query(`
-      SELECT COUNT(*) * 250 as subscription_revenue
+    
+    // Get new clients (subscription revenue)
+    const clientsResult = await pool.query(`
+      SELECT COUNT(*) as count
       FROM users
-      WHERE 'client' = ANY(roles) 
-      AND created_at >= $1 
-      AND created_at <= $2
+      WHERE 'client' = ANY(roles)
+        AND created_at BETWEEN $1 AND $2
     `, [start_date, end_date]);
-
-    // Get consultation revenue (clinic percentage)
-    const consultationResult = await pool.query(`
-      SELECT 
-        SUM(ROUND((c.value * (100 - p.percentage) / 100)::numeric, 2)) as consultation_revenue,
-        SUM(c.value) as total_consultation_value
+    
+    const newClientsCount = parseInt(clientsResult.rows[0].count);
+    const subscriptionRevenue = newClientsCount * 250; // R$250 per client
+    
+    // Get consultations revenue (clinic's portion)
+    const consultationsResult = await pool.query(`
+      SELECT SUM(c.value * (100 - u.percentage) / 100) as clinic_revenue
       FROM consultations c
-      JOIN users p ON c.professional_id = p.id
-      WHERE c.date >= $1 AND c.date <= $2
+      JOIN users u ON c.professional_id = u.id
+      WHERE c.date BETWEEN $1 AND $2
     `, [start_date, end_date]);
-
-    const subscriptionRevenue = parseFloat(subscriptionResult.rows[0]?.subscription_revenue || 0);
-    const consultationRevenue = parseFloat(consultationResult.rows[0]?.consultation_revenue || 0);
-    const totalConsultationValue = parseFloat(consultationResult.rows[0]?.total_consultation_value || 0);
-
+    
+    const consultationRevenue = parseFloat(consultationsResult.rows[0].clinic_revenue) || 0;
+    
+    // Calculate total revenue
+    const totalRevenue = subscriptionRevenue + consultationRevenue;
+    
     res.json({
       subscription_revenue: subscriptionRevenue,
       consultation_revenue: consultationRevenue,
-      total_revenue: totalConsultationValue,
-      clinic_total_revenue: subscriptionRevenue + consultationRevenue
+      total_revenue: totalRevenue,
+      clinic_total_revenue: totalRevenue
     });
   } catch (error) {
-    console.error('Error generating total revenue report:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    console.error('Error fetching total revenue report:', error);
+    res.status(500).json({ message: 'Erro ao gerar relatório de faturamento total' });
   }
 });
 
-// 🔥 MERCADO PAGO ROUTES WITH SDK V2
-app.post('/api/create-subscription', authenticate, async (req, res) => {
+// ===== CLINIC ROUTES =====
+
+// Get clinic stats
+app.get('/api/clinic/stats', authenticate, authorize(['clinic']), async (req, res) => {
   try {
-    if (!mercadopago) {
-      return res.status(500).json({ message: 'MercadoPago não configurado' });
-    }
-
-    const { user_id, dependent_ids = [] } = req.body;
+    // Get professionals count
+    const professionalsResult = await pool.query(`
+      SELECT 
+        COUNT(*) as total_professionals,
+        SUM(CASE WHEN is_active = true THEN 1 ELSE 0 END) as active_professionals
+      FROM clinic_professionals
+      WHERE clinic_id = $1
+    `, [req.user.id]);
     
-    // Calculate total amount: R$250 for titular + R$50 per dependent
-    const dependentCount = dependent_ids.length;
-    const totalAmount = 250 + (dependentCount * 50);
-
-    console.log('🔄 Creating subscription payment with SDK v2:', {
-      user_id,
-      dependent_count: dependentCount,
-      total_amount: totalAmount
+    const totalProfessionals = parseInt(professionalsResult.rows[0].total_professionals) || 0;
+    const activeProfessionals = parseInt(professionalsResult.rows[0].active_professionals) || 0;
+    
+    // Get current month's consultations
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    
+    const consultationsResult = await pool.query(`
+      SELECT COUNT(*) as count, SUM(value) as revenue
+      FROM consultations
+      WHERE professional_id IN (
+        SELECT professional_id FROM clinic_professionals WHERE clinic_id = $1
+      )
+      AND date BETWEEN $2 AND $3
+    `, [req.user.id, firstDayOfMonth, lastDayOfMonth]);
+    
+    const totalConsultations = parseInt(consultationsResult.rows[0].count) || 0;
+    const monthlyRevenue = parseFloat(consultationsResult.rows[0].revenue) || 0;
+    
+    // Get pending payments
+    const paymentsResult = await pool.query(`
+      SELECT SUM(c.value * (100 - cp.percentage) / 100) as pending_payments
+      FROM consultations c
+      JOIN clinic_professionals cp ON c.professional_id = cp.professional_id AND cp.clinic_id = $1
+      WHERE c.date BETWEEN $2 AND $3
+    `, [req.user.id, firstDayOfMonth, lastDayOfMonth]);
+    
+    const pendingPayments = parseFloat(paymentsResult.rows[0].pending_payments) || 0;
+    
+    res.json({
+      total_professionals: totalProfessionals,
+      active_professionals: activeProfessionals,
+      total_consultations: totalConsultations,
+      monthly_revenue: monthlyRevenue,
+      pending_payments: pendingPayments
     });
+  } catch (error) {
+    console.error('Error fetching clinic stats:', error);
+    res.status(500).json({ message: 'Erro ao buscar estatísticas da clínica' });
+  }
+});
 
-    // 🔥 CREATE PREFERENCE WITH SDK V2
+// Get clinic professionals
+app.get('/api/clinic/professionals', authenticate, authorize(['clinic']), async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        u.id, u.name, u.cpf, u.email, u.phone, u.professional_registration,
+        u.photo_url, u.professional_type, cp.percentage, cp.is_active,
+        sc.name as category_name
+      FROM clinic_professionals cp
+      JOIN users u ON cp.professional_id = u.id
+      LEFT JOIN service_categories sc ON u.category_id = sc.id
+      WHERE cp.clinic_id = $1
+      ORDER BY u.name
+    `, [req.user.id]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching clinic professionals:', error);
+    res.status(500).json({ message: 'Erro ao buscar profissionais da clínica' });
+  }
+});
+
+// Get clinic agenda professionals
+app.get('/api/clinic/agenda/professionals', authenticate, authorize(['clinic']), async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        u.id, u.name, u.professional_type
+      FROM clinic_professionals cp
+      JOIN users u ON cp.professional_id = u.id
+      WHERE cp.clinic_id = $1 AND cp.is_active = true
+        AND (u.professional_type = 'agenda' OR u.professional_type = 'both')
+      ORDER BY u.name
+    `, [req.user.id]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching clinic agenda professionals:', error);
+    res.status(500).json({ message: 'Erro ao buscar profissionais da agenda' });
+  }
+});
+
+// Get clinic patients
+app.get('/api/clinic/patients', authenticate, authorize(['clinic']), async (req, res) => {
+  try {
+    // Get all patients from professionals in this clinic
+    const result = await pool.query(`
+      SELECT 
+        ap.id, ap.name, ap.cpf, ap.email, ap.phone, ap.birth_date,
+        ap.professional_id, u.name as professional_name,
+        false as is_convenio_patient
+      FROM agenda_patients ap
+      JOIN users u ON ap.professional_id = u.id
+      WHERE ap.professional_id IN (
+        SELECT professional_id FROM clinic_professionals WHERE clinic_id = $1
+      )
+      UNION
+      SELECT 
+        COALESCE(d.id, c.id) as id,
+        COALESCE(d.name, c.name) as name,
+        COALESCE(d.cpf, c.cpf) as cpf,
+        c.email, c.phone, COALESCE(d.birth_date, c.birth_date) as birth_date,
+        cons.professional_id, u.name as professional_name,
+        true as is_convenio_patient
+      FROM consultations cons
+      JOIN users u ON cons.professional_id = u.id
+      LEFT JOIN users c ON cons.client_id = c.id
+      LEFT JOIN dependents d ON cons.dependent_id = d.id
+      WHERE cons.professional_id IN (
+        SELECT professional_id FROM clinic_professionals WHERE clinic_id = $1
+      )
+      ORDER BY name
+    `, [req.user.id]);
+    
+    // Remove duplicates (same patient might have multiple consultations)
+    const patientsMap = {};
+    result.rows.forEach(patient => {
+      const key = `${patient.cpf}-${patient.professional_id}`;
+      if (!patientsMap[key]) {
+        patientsMap[key] = patient;
+      }
+    });
+    
+    res.json(Object.values(patientsMap));
+  } catch (error) {
+    console.error('Error fetching clinic patients:', error);
+    res.status(500).json({ message: 'Erro ao buscar pacientes da clínica' });
+  }
+});
+
+// Create clinic professional
+app.post('/api/clinic/professionals', authenticate, authorize(['clinic']), async (req, res) => {
+  try {
+    const { 
+      name, cpf, email, phone, password, professional_registration,
+      category_id, percentage, professional_type
+    } = req.body;
+    
+    // Validate input
+    if (!name || !cpf || !password) {
+      return res.status(400).json({ message: 'Nome, CPF e senha são obrigatórios' });
+    }
+    
+    // Start a transaction
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      // Check if user already exists
+      const userCheck = await client.query('SELECT * FROM users WHERE cpf = $1', [cpf]);
+      
+      let userId;
+      
+      if (userCheck.rows.length > 0) {
+        // User exists, check if already a professional
+        const user = userCheck.rows[0];
+        
+        if (user.roles.includes('professional')) {
+          // Already a professional, check if already linked to this clinic
+          const linkCheck = await client.query(
+            'SELECT * FROM clinic_professionals WHERE clinic_id = $1 AND professional_id = $2',
+            [req.user.id, user.id]
+          );
+          
+          if (linkCheck.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ message: 'Este profissional já está vinculado à sua clínica' });
+          }
+          
+          userId = user.id;
+        } else {
+          // User exists but not a professional, add professional role
+          const roles = [...user.roles, 'professional'];
+          
+          await client.query(
+            `UPDATE users SET 
+              roles = $1,
+              professional_registration = $2,
+              category_id = $3,
+              professional_type = $4,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = $5`,
+            [roles, professional_registration, category_id, professional_type, user.id]
+          );
+          
+          userId = user.id;
+        }
+      } else {
+        // User doesn't exist, create new user
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+        
+        const userResult = await client.query(
+          `INSERT INTO users (
+            name, cpf, email, phone, password, roles, professional_registration,
+            category_id, professional_type
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+          [
+            name, cpf, email, phone, hashedPassword, ['professional'],
+            professional_registration, category_id, professional_type
+          ]
+        );
+        
+        userId = userResult.rows[0].id;
+      }
+      
+      // Link professional to clinic
+      await client.query(
+        'INSERT INTO clinic_professionals (clinic_id, professional_id, percentage) VALUES ($1, $2, $3)',
+        [req.user.id, userId, percentage]
+      );
+      
+      await client.query('COMMIT');
+      
+      res.status(201).json({
+        message: 'Profissional adicionado com sucesso',
+        professional_id: userId
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Error creating clinic professional:', error);
+    res.status(500).json({ message: 'Erro ao adicionar profissional' });
+  }
+});
+
+// Update clinic professional
+app.put('/api/clinic/professionals/:id', authenticate, authorize(['clinic']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { percentage, is_active } = req.body;
+    
+    // Check if professional is linked to this clinic
+    const linkCheck = await pool.query(
+      'SELECT * FROM clinic_professionals WHERE clinic_id = $1 AND professional_id = $2',
+      [req.user.id, id]
+    );
+    
+    if (linkCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Profissional não encontrado' });
+    }
+    
+    // Update link
+    await pool.query(
+      `UPDATE clinic_professionals SET 
+        percentage = COALESCE($1, percentage),
+        is_active = COALESCE($2, is_active),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE clinic_id = $3 AND professional_id = $4`,
+      [percentage, is_active, req.user.id, id]
+    );
+    
+    res.json({ message: 'Profissional atualizado com sucesso' });
+  } catch (error) {
+    console.error('Error updating clinic professional:', error);
+    res.status(500).json({ message: 'Erro ao atualizar profissional' });
+  }
+});
+
+// ===== PAYMENT ROUTES =====
+
+// Create client subscription payment (MercadoPago SDK v2)
+app.post('/api/create-subscription', authenticate, authorize(['client']), async (req, res) => {
+  try {
+    const { user_id } = req.body;
+    
+    // Validate input
+    if (!user_id) {
+      return res.status(400).json({ message: 'ID do usuário é obrigatório' });
+    }
+    
+    // Check if user exists and is a client
+    const userCheck = await pool.query(
+      'SELECT * FROM users WHERE id = $1 AND $2 = ANY(roles)',
+      [user_id, 'client']
+    );
+    
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'Cliente não encontrado' });
+    }
+    
+    // Get dependents count
+    const dependentsResult = await pool.query(
+      'SELECT COUNT(*) as count FROM dependents WHERE client_id = $1',
+      [user_id]
+    );
+    
+    const dependentsCount = parseInt(dependentsResult.rows[0].count);
+    
+    // Calculate subscription amount (R$250 + R$50 per dependent)
+    const amount = 250 + (dependentsCount * 50);
+    
+    // Create MercadoPago preference using SDK v2
+    const { MercadoPagoConfig, Preference } = await import('mercadopago');
+    
+    // Initialize the client object
+    const client = new MercadoPagoConfig({ 
+      accessToken: process.env.MP_ACCESS_TOKEN,
+      options: { timeout: 5000 }
+    });
+    
+    const preference = new Preference(client);
+    
+    // Create preference object
     const preferenceData = {
       items: [
         {
           id: `subscription-${user_id}`,
-          title: `Assinatura Cartão Quiro Ferreira - Titular + ${dependentCount} dependente(s)`,
-          description: `Assinatura mensal do convênio para titular e ${dependentCount} dependente(s)`,
-          quantity: 1,
-          currency_id: 'BRL',
-          unit_price: totalAmount
-        }
-      ],
-      payer: {
-        email: 'cliente@quiroferreira.com.br'
-      },
-      back_urls: {
-        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client?payment=success`,
-        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client?payment=failure`,
-        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client?payment=pending`
-      },
-      auto_return: 'approved',
-      external_reference: `subscription-${user_id}-${Date.now()}`,
-      notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/webhooks/mercadopago`
-    };
-
-    const preference = await mercadopago.Preference.create({ body: preferenceData });
-    
-    console.log('✅ Subscription preference created with SDK v2:', preference.id);
-
-    res.json({
-      id: preference.id,
-      init_point: preference.init_point,
-      sandbox_init_point: preference.sandbox_init_point
-    });
-  } catch (error) {
-    console.error('❌ Error creating subscription with SDK v2:', error);
-    res.status(500).json({ 
-      message: 'Erro ao criar pagamento de assinatura',
-      error: error.message 
-    });
-  }
-});
-
-app.post('/api/professional/create-payment', authenticate, authorize(['professional']), async (req, res) => {
-  try {
-    if (!mercadopago) {
-      return res.status(500).json({ message: 'MercadoPago não configurado' });
-    }
-
-    const { amount } = req.body;
-    const professionalId = req.user.id;
-
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ message: 'Valor inválido' });
-    }
-
-    console.log('🔄 Creating professional payment with SDK v2:', {
-      professional_id: professionalId,
-      amount: amount
-    });
-
-    // 🔥 CREATE PREFERENCE WITH SDK V2
-    const preferenceData = {
-      items: [
-        {
-          id: `professional-payment-${professionalId}`,
-          title: 'Pagamento ao Convênio Quiro Ferreira',
-          description: 'Repasse de porcentagem das consultas realizadas',
-          quantity: 1,
-          currency_id: 'BRL',
-          unit_price: parseFloat(amount)
-        }
-      ],
-      payer: {
-        email: 'profissional@quiroferreira.com.br'
-      },
-      back_urls: {
-        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional?payment=success`,
-        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional?payment=failure`,
-        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional?payment=pending`
-      },
-      auto_return: 'approved',
-      external_reference: `professional-${professionalId}-${Date.now()}`,
-      notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/webhooks/mercadopago`
-    };
-
-    const preference = await mercadopago.Preference.create({ body: preferenceData });
-    
-    console.log('✅ Professional payment preference created with SDK v2:', preference.id);
-
-    res.json({
-      id: preference.id,
-      init_point: preference.init_point,
-      sandbox_init_point: preference.sandbox_init_point
-    });
-  } catch (error) {
-    console.error('❌ Error creating professional payment with SDK v2:', error);
-    res.status(500).json({ 
-      message: 'Erro ao criar pagamento profissional',
-      error: error.message 
-    });
-  }
-});
-
-app.post('/api/agenda/create-subscription-payment', authenticate, authorize(['professional']), async (req, res) => {
-  try {
-    if (!mercadopago) {
-      return res.status(500).json({ message: 'MercadoPago não configurado' });
-    }
-
-    const professionalId = req.user.id;
-    const amount = 49.90; // Fixed amount for agenda subscription
-
-    console.log('🔄 Creating agenda subscription payment with SDK v2:', {
-      professional_id: professionalId,
-      amount: amount
-    });
-
-    // 🔥 CREATE PREFERENCE WITH SDK V2
-    const preferenceData = {
-      items: [
-        {
-          id: `agenda-subscription-${professionalId}`,
-          title: 'Assinatura Agenda Profissional',
-          description: 'Acesso mensal à agenda profissional completa',
+          title: 'Assinatura Cartão Quiro Ferreira',
+          description: `Assinatura mensal para ${dependentsCount} dependente(s)`,
           quantity: 1,
           currency_id: 'BRL',
           unit_price: amount
         }
       ],
       payer: {
-        email: 'profissional@quiroferreira.com.br'
+        name: userCheck.rows[0].name,
+        email: userCheck.rows[0].email || 'cliente@cartaoquiroferreira.com.br'
       },
       back_urls: {
-        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda?payment=success`,
-        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda?payment=failure`,
-        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda?payment=pending`
+        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`,
+        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`,
+        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`
       },
       auto_return: 'approved',
-      external_reference: `agenda-${professionalId}-${Date.now()}`,
-      notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/webhooks/mercadopago`
+      notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/webhooks/mercadopago`,
+      metadata: {
+        user_id,
+        payment_type: 'client_subscription'
+      }
     };
-
-    const preference = await mercadopago.Preference.create({ body: preferenceData });
     
-    console.log('✅ Agenda subscription preference created with SDK v2:', preference.id);
-
+    // Create preference
+    const result = await preference.create({ body: preferenceData });
+    
+    // Save payment record
+    await pool.query(
+      `INSERT INTO payments (user_id, payment_type, amount, payment_id, payment_data)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [user_id, 'client_subscription', amount, result.id, JSON.stringify(result)]
+    );
+    
     res.json({
-      id: preference.id,
-      init_point: preference.init_point,
-      sandbox_init_point: preference.sandbox_init_point
+      id: result.id,
+      init_point: result.init_point,
+      sandbox_init_point: result.sandbox_init_point
     });
   } catch (error) {
-    console.error('❌ Error creating agenda subscription with SDK v2:', error);
-    res.status(500).json({ 
-      message: 'Erro ao criar pagamento da agenda',
-      error: error.message 
-    });
+    console.error('Error creating client subscription payment:', error);
+    res.status(500).json({ message: 'Erro ao criar pagamento de assinatura' });
   }
 });
 
-// 🔥 WEBHOOK ROUTE FOR MERCADO PAGO
+// Create professional payment (MercadoPago SDK v2)
+app.post('/api/professional/create-payment', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { amount } = req.body;
+    
+    // Validate input
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ message: 'Valor deve ser maior que zero' });
+    }
+    
+    // Create MercadoPago preference using SDK v2
+    const { MercadoPagoConfig, Preference } = await import('mercadopago');
+    
+    // Initialize the client object
+    const client = new MercadoPagoConfig({ 
+      accessToken: process.env.MP_ACCESS_TOKEN,
+      options: { timeout: 5000 }
+    });
+    
+    const preference = new Preference(client);
+    
+    // Create preference object
+    const preferenceData = {
+      items: [
+        {
+          id: `professional-payment-${req.user.id}`,
+          title: 'Pagamento ao Convênio Quiro Ferreira',
+          description: 'Repasse de valor referente às consultas realizadas',
+          quantity: 1,
+          currency_id: 'BRL',
+          unit_price: parseFloat(amount)
+        }
+      ],
+      payer: {
+        name: req.user.name,
+        email: req.user.email || 'profissional@cartaoquiroferreira.com.br'
+      },
+      back_urls: {
+        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional`,
+        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional`,
+        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional`
+      },
+      auto_return: 'approved',
+      notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/webhooks/mercadopago`,
+      metadata: {
+        user_id: req.user.id,
+        payment_type: 'professional_payment'
+      }
+    };
+    
+    // Create preference
+    const result = await preference.create({ body: preferenceData });
+    
+    // Save payment record
+    await pool.query(
+      `INSERT INTO payments (user_id, payment_type, amount, payment_id, payment_data)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [req.user.id, 'professional_payment', amount, result.id, JSON.stringify(result)]
+    );
+    
+    res.json({
+      id: result.id,
+      init_point: result.init_point,
+      sandbox_init_point: result.sandbox_init_point
+    });
+  } catch (error) {
+    console.error('Error creating professional payment:', error);
+    res.status(500).json({ message: 'Erro ao criar pagamento' });
+  }
+});
+
+// Create agenda subscription payment (MercadoPago SDK v2)
+app.post('/api/agenda/create-subscription-payment', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    // Fixed amount for agenda subscription
+    const amount = 49.90;
+    
+    // Create MercadoPago preference using SDK v2
+    const { MercadoPagoConfig, Preference } = await import('mercadopago');
+    
+    // Initialize the client object
+    const client = new MercadoPagoConfig({ 
+      accessToken: process.env.MP_ACCESS_TOKEN,
+      options: { timeout: 5000 }
+    });
+    
+    const preference = new Preference(client);
+    
+    // Create preference object
+    const preferenceData = {
+      items: [
+        {
+          id: `agenda-subscription-${req.user.id}`,
+          title: 'Assinatura da Agenda Profissional',
+          description: 'Assinatura mensal da agenda profissional',
+          quantity: 1,
+          currency_id: 'BRL',
+          unit_price: amount
+        }
+      ],
+      payer: {
+        name: req.user.name,
+        email: req.user.email || 'profissional@cartaoquiroferreira.com.br'
+      },
+      back_urls: {
+        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda`,
+        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda`,
+        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda`
+      },
+      auto_return: 'approved',
+      notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/webhooks/mercadopago`,
+      metadata: {
+        user_id: req.user.id,
+        payment_type: 'agenda_subscription'
+      }
+    };
+    
+    // Create preference
+    const result = await preference.create({ body: preferenceData });
+    
+    // Save payment record
+    await pool.query(
+      `INSERT INTO payments (user_id, payment_type, amount, payment_id, payment_data)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [req.user.id, 'agenda_subscription', amount, result.id, JSON.stringify(result)]
+    );
+    
+    res.json({
+      id: result.id,
+      init_point: result.init_point,
+      sandbox_init_point: result.sandbox_init_point
+    });
+  } catch (error) {
+    console.error('Error creating agenda subscription payment:', error);
+    res.status(500).json({ message: 'Erro ao criar pagamento de assinatura da agenda' });
+  }
+});
+
+// ===== WEBHOOK ROUTES =====
+
+// MercadoPago webhook (SDK v2)
 app.post('/api/webhooks/mercadopago', async (req, res) => {
   try {
-    console.log('🔔 MercadoPago webhook received:', req.body);
-    
     const { type, data } = req.body;
+    
+    console.log('🔔 Received MercadoPago webhook:', { type, data });
     
     if (type === 'payment') {
       const paymentId = data.id;
-      console.log('💳 Processing payment notification:', paymentId);
       
-      // Here you would typically:
-      // 1. Get payment details from MercadoPago API
-      // 2. Update subscription status in database
-      // 3. Send confirmation email
+      // Get payment details using SDK v2
+      const { MercadoPagoConfig, Payment } = await import('mercadopago');
       
-      // For now, just log the payment
-      console.log('✅ Payment processed successfully');
+      // Initialize the client object
+      const client = new MercadoPagoConfig({ 
+        accessToken: process.env.MP_ACCESS_TOKEN,
+        options: { timeout: 5000 }
+      });
+      
+      const payment = new Payment(client);
+      
+      // Get payment details
+      const paymentData = await payment.get({ id: paymentId });
+      
+      console.log('💰 Payment data:', paymentData);
+      
+      // Check if payment is approved
+      if (paymentData.status === 'approved') {
+        // Get metadata
+        const metadata = paymentData.metadata || {};
+        const userId = metadata.user_id;
+        const paymentType = metadata.payment_type;
+        
+        if (!userId || !paymentType) {
+          console.error('❌ Missing metadata in payment:', paymentData);
+          return res.status(400).json({ message: 'Metadados ausentes no pagamento' });
+        }
+        
+        // Update payment record
+        await pool.query(
+          `UPDATE payments SET 
+            status = 'approved',
+            payment_data = $1,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE payment_id = $2`,
+          [JSON.stringify(paymentData), paymentData.id]
+        );
+        
+        // Process based on payment type
+        if (paymentType === 'client_subscription') {
+          // Set subscription as active for 30 days
+          const expiryDate = new Date();
+          expiryDate.setDate(expiryDate.getDate() + 30);
+          
+          await pool.query(
+            `UPDATE users SET 
+              subscription_status = 'active',
+              subscription_expiry = $1,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2`,
+            [expiryDate, userId]
+          );
+          
+          console.log('✅ Client subscription activated:', { userId, expiryDate });
+        } else if (paymentType === 'agenda_subscription') {
+          // Set agenda subscription as active for 30 days
+          const expiryDate = new Date();
+          expiryDate.setDate(expiryDate.getDate() + 30);
+          
+          // Check if subscription exists
+          const subscriptionCheck = await pool.query(
+            'SELECT * FROM agenda_subscriptions WHERE professional_id = $1',
+            [userId]
+          );
+          
+          if (subscriptionCheck.rows.length === 0) {
+            // Create new subscription
+            await pool.query(
+              `INSERT INTO agenda_subscriptions (professional_id, status, expires_at, payment_id)
+               VALUES ($1, 'active', $2, $3)`,
+              [userId, expiryDate, paymentData.id]
+            );
+          } else {
+            // Update existing subscription
+            await pool.query(
+              `UPDATE agenda_subscriptions SET 
+                status = 'active',
+                expires_at = $1,
+                payment_id = $2,
+                updated_at = CURRENT_TIMESTAMP
+              WHERE professional_id = $3`,
+              [expiryDate, paymentData.id, userId]
+            );
+          }
+          
+          console.log('✅ Agenda subscription activated:', { userId, expiryDate });
+        } else if (paymentType === 'professional_payment') {
+          // Mark professional payment as completed
+          console.log('✅ Professional payment completed:', { userId, amount: paymentData.transaction_amount });
+        }
+      }
     }
     
-    res.status(200).json({ received: true });
+    res.status(200).json({ message: 'Webhook processado com sucesso' });
   } catch (error) {
-    console.error('❌ Error processing webhook:', error);
-    res.status(500).json({ error: 'Webhook processing failed' });
+    console.error('Error processing MercadoPago webhook:', error);
+    res.status(500).json({ message: 'Erro ao processar webhook' });
   }
 });
 
-// 🔥 IMAGE UPLOAD ROUTE
-app.post('/api/upload-image', authenticate, async (req, res) => {
+// ===== FILE UPLOAD ROUTES =====
+
+// Upload image
+app.post('/api/upload-image', authenticate, upload.single('image'), async (req, res) => {
   try {
-    const upload = createUpload();
+    if (!req.file) {
+      return res.status(400).json({ message: 'Nenhum arquivo enviado' });
+    }
     
-    upload.single('image')(req, res, async (err) => {
-      if (err) {
-        console.error('❌ Upload error:', err);
-        if (err instanceof multer.MulterError) {
-          if (err.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({ message: 'Arquivo muito grande. Máximo 5MB.' });
-          }
-        }
-        return res.status(400).json({ message: err.message || 'Erro no upload da imagem' });
-      }
-
-      if (!req.file) {
-        return res.status(400).json({ message: 'Nenhum arquivo enviado' });
-      }
-
-      console.log('✅ Image uploaded successfully:', req.file.path);
-
-      // Update user photo URL in database
-      await pool.query(
-        'UPDATE users SET photo_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-        [req.file.path, req.user.id]
-      );
-
-      res.json({
-        message: 'Imagem enviada com sucesso',
-        imageUrl: req.file.path
-      });
+    // Update user's photo_url
+    await pool.query(
+      'UPDATE users SET photo_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [req.file.path, req.user.id]
+    );
+    
+    res.json({
+      message: 'Imagem enviada com sucesso',
+      imageUrl: req.file.path
     });
   } catch (error) {
-    console.error('❌ Error in image upload route:', error);
-    res.status(500).json({ message: 'Erro interno do servidor' });
+    console.error('Error uploading image:', error);
+    res.status(500).json({ message: 'Erro ao enviar imagem' });
   }
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ message: 'Erro interno do servidor' });
 });
 
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
 });
-
-export default app;

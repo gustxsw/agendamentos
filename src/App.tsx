@@ -21,13 +21,23 @@ import ManageUsersPage from "./pages/admin/ManageUsersPage";
 import ManageServicesPage from "./pages/admin/ManageServicesPage";
 import ReportsPage from "./pages/admin/ReportsPage";
 
-// 🔥 NEW: Enhanced pages
+// Enhanced pages
 import MedicalRecordsPage from "./pages/professional/MedicalRecordsPage";
 import ProfilePage from "./pages/professional/ProfilePage";
 import EnhancedAgendaPage from "./pages/professional/EnhancedAgendaPage";
 import EnhancedPatientsPage from "./pages/professional/EnhancedPatientsPage";
 import EnhancedReportsPage from "./pages/professional/EnhancedReportsPage";
 import EnhancedAdminReportsPage from "./pages/admin/EnhancedReportsPage";
+
+// 🔥 NEW: Clinic pages
+import ClinicHomePage from "./pages/clinic/ClinicHomePage";
+import ClinicProfessionalsPage from "./pages/clinic/ClinicProfessionalsPage";
+import ClinicConsultationPage from "./pages/clinic/ClinicConsultationPage";
+import ClinicAgendaPage from "./pages/clinic/ClinicAgendaPage";
+import ClinicPatientsPage from "./pages/clinic/ClinicPatientsPage";
+import ClinicMedicalRecordsPage from "./pages/clinic/ClinicMedicalRecordsPage";
+import ClinicReportsPage from "./pages/clinic/ClinicReportsPage";
+import ClinicProfilePage from "./pages/clinic/ClinicProfilePage";
 
 // Route guards
 const ProtectedRoute = ({
@@ -53,6 +63,8 @@ const ProtectedRoute = ({
       return <Navigate to="/client" replace />;
     } else if (user.currentRole === "professional") {
       return <Navigate to="/professional" replace />;
+    } else if (user.currentRole === "clinic") {
+      return <Navigate to="/clinic" replace />;
     } else if (user.currentRole === "admin") {
       return <Navigate to="/admin" replace />;
     }
@@ -78,7 +90,7 @@ function App() {
 
   return (
     <Routes>
-      {/* 🔥 ROOT ROUTE - SEMPRE LOGIN */}
+      {/* ROOT ROUTE - SEMPRE LOGIN */}
       <Route path="/" element={<LoginPage />} />
 
       {/* Auth routes */}
@@ -120,6 +132,25 @@ function App() {
         <Route path="/professional/profile" element={<ProfilePage />} />
       </Route>
 
+      {/* 🔥 NEW: Clinic routes */}
+      <Route
+        element={
+          <ProtectedRoute allowedRoles={["clinic"]}>
+            <MainLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/clinic" element={<ClinicHomePage />} />
+        <Route path="/clinic/professionals" element={<ClinicProfessionalsPage />} />
+        <Route path="/clinic/register-consultation" element={<ClinicConsultationPage />} />
+        <Route path="/clinic/agenda" element={<ClinicAgendaPage />} />
+        <Route path="/clinic/patients" element={<ClinicPatientsPage />} />
+        <Route path="/clinic/medical-records" element={<ClinicMedicalRecordsPage />} />
+        <Route path="/clinic/medical-records/:patientId" element={<ClinicMedicalRecordsPage />} />
+        <Route path="/clinic/reports" element={<ClinicReportsPage />} />
+        <Route path="/clinic/profile" element={<ClinicProfilePage />} />
+      </Route>
+
       {/* Admin routes */}
       <Route
         element={
@@ -134,7 +165,7 @@ function App() {
         <Route path="/admin/reports" element={<EnhancedAdminReportsPage />} />
       </Route>
 
-      {/* 🔥 CATCH-ALL - QUALQUER ROTA DESCONHECIDA VAI PARA LOGIN */}
+      {/* CATCH-ALL - QUALQUER ROTA DESCONHECIDA VAI PARA LOGIN */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
