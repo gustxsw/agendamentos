@@ -136,6 +136,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (role === 'professional') {
         console.log('🚀 Redirecting to /professional');
         navigate('/professional', { replace: true });
+      } else if (role === 'clinic') {
+        console.log('🚀 Redirecting to /clinic');
+        navigate('/clinic', { replace: true });
       } else if (role === 'admin') {
         console.log('🚀 Redirecting to /admin');
         navigate('/admin', { replace: true });
@@ -184,6 +187,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         navigate('/client');
       } else if (role === 'professional') {
         navigate('/professional');
+      } else if (role === 'clinic') {
+        navigate('/clinic');
       } else if (role === 'admin') {
         navigate('/admin');
       }

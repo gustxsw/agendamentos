@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { UserPlus, Edit, Trash2, User, Check, X, Search, Filter, UserCheck, Calendar } from 'lucide-react';
+import { UserPlus, Edit, Trash2, User, Check, X, Search, Filter, UserCheck, Calendar, Building2 } from 'lucide-react';
 
 type UserData = {
   id: number;
@@ -504,6 +504,8 @@ const ManageUsersPage: React.FC = () => {
         return 'Cliente';
       case 'professional':
         return 'Profissional';
+      case 'clinic':
+        return 'Clínica';
       case 'admin':
         return 'Administrador';
       default:
@@ -581,6 +583,7 @@ const ManageUsersPage: React.FC = () => {
               Buscar
             </label>
             <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
                 type="text"
                 value={filters.search}
@@ -588,7 +591,6 @@ const ManageUsersPage: React.FC = () => {
                 placeholder="Nome, email ou CPF"
                 className="input pl-10"
               />
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
             </div>
           </div>
 
@@ -604,6 +606,7 @@ const ManageUsersPage: React.FC = () => {
               <option value="">Todos</option>
               <option value="client">Cliente</option>
               <option value="professional">Profissional</option>
+              <option value="clinic">Clínica</option>
               <option value="admin">Administrador</option>
             </select>
           </div>
@@ -743,6 +746,8 @@ const ManageUsersPage: React.FC = () => {
                                 ? 'bg-purple-100 text-purple-800'
                                 : role === 'professional'
                                 ? 'bg-blue-100 text-blue-800'
+                                : role === 'clinic'
+                                ? 'bg-purple-100 text-purple-800'
                                 : 'bg-green-100 text-green-800'
                             }`}
                           >
@@ -1118,7 +1123,7 @@ const ManageUsersPage: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-3">
                   Tipos de Acesso (Roles)
                 </label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <label className="flex items-center">
                     <input
                       type="checkbox"
@@ -1137,6 +1142,16 @@ const ManageUsersPage: React.FC = () => {
                       className="rounded border-gray-300 text-red-600 shadow-sm focus:border-red-300 focus:ring focus:ring-red-200 focus:ring-opacity-50"
                     />
                     <span className="ml-2 text-sm text-gray-600">Profissional</span>
+                  </label>
+                  
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={roles.includes('clinic')}
+                      onChange={(e) => handleRoleChange('clinic', e.target.checked)}
+                      className="rounded border-gray-300 text-red-600 shadow-sm focus:border-red-300 focus:ring focus:ring-red-200 focus:ring-opacity-50"
+                    />
+                    <span className="ml-2 text-sm text-gray-600">Clínica</span>
                   </label>
                   
                   <label className="flex items-center">
