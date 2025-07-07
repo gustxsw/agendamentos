@@ -1006,15 +1006,6 @@ const EnhancedAgendaPage: React.FC = () => {
           </div>
         </div>
         
-        <div className="flex justify-end mt-4">
-          <button
-            onClick={() => setShowAppointmentModal(true)}
-            className="btn btn-primary flex items-center"
-          >
-            <Plus className="h-5 w-5 mr-2" />
-            Novo Agendamento
-          </button>
-        </div>
       </div>
 
       {/* Calendar Grid */}
