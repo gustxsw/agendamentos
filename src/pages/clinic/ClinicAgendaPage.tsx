@@ -339,7 +339,6 @@ const ClinicAgendaPage: React.FC = () => {
                               >
                                 WhatsApp
                               </a>
-                            )}
                           </div>
                         ))}
                       </div>
