@@ -323,7 +323,9 @@ const ClinicAgendaPage: React.FC = () => {
 
                     return (
                       <div key={dayIndex} className="p-2 border-r border-gray-100 min-h-[60px]">
-                        {dayAppointments.map((appointment) => (
+                            href={`https://wa.me/55${appointment.patient_phone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                              `Olá ${appointment.patient_name}, tudo bem? Gostaria de confirmar o seu agendamento no dia ${format(parseISO(appointment.date), "dd/MM/yyyy", { locale: ptBR })} às ${format(parseISO(appointment.date), "HH:mm", { locale: ptBR })} com ${appointment.professional_name}.`
+                            )}`}
                           <div
                             key={appointment.id}
                             className={`p-2 rounded text-xs ${getStatusColor(appointment.status)} mb-1`}
@@ -339,7 +341,7 @@ const ClinicAgendaPage: React.FC = () => {
                               >
                                 WhatsApp
                               </a>
-                            )}
+                            Confirmar
                           </div>
                         ))}
                       </div>

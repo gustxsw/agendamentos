@@ -46,6 +46,15 @@ type ParticularPatient = {
   is_convenio_patient: boolean;
 };
 
+type ProfessionalLocation = {
+  id: number;
+  clinic_name: string;
+  address: string;
+  city: string;
+  state: string;
+  is_main: boolean;
+};
+
 type SubscriptionStatus = {
   status: string;
   expires_at: string | null;
@@ -74,6 +83,7 @@ const UnifiedConsultationPage: React.FC = () => {
   const [value, setValue] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
   
   // New patient form (for particulares)
@@ -91,6 +101,7 @@ const UnifiedConsultationPage: React.FC = () => {
   const [services, setServices] = useState<Service[]>([]);
   const [filteredServices, setFilteredServices] = useState<Service[]>([]);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
+  const [locations, setLocations] = useState<ProfessionalLocation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -156,6 +167,16 @@ const UnifiedConsultationPage: React.FC = () => {
       if (servicesResponse.ok) {
         const servicesData = await servicesResponse.json();
         setServices(servicesData);
+      }
+      
+      // Fetch professional locations
+      const locationsResponse = await fetch(`${apiUrl}/api/professional-locations`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (locationsResponse.ok) {
+        const locationsData = await locationsResponse.json();
+        setLocations(locationsData);
       }
     } catch (error) {
       console.error('Error fetching initial data:', error);
@@ -369,6 +390,7 @@ const UnifiedConsultationPage: React.FC = () => {
         professional_id: user?.id,
         service_id: serviceId,
         value: Number(value),
+        location_id: selectedLocation,
         date: dateTime.toISOString(),
         notes: notes
       };
@@ -433,6 +455,7 @@ const UnifiedConsultationPage: React.FC = () => {
     setSelectedDependentId(null);
     setCategoryId('');
     setServiceId(null);
+    setSelectedLocation(null);
     setValue('');
     setDate('');
     setTime('');
@@ -773,6 +796,28 @@ const UnifiedConsultationPage: React.FC = () => {
                     disabled={isLoading}
                     required
                   />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Local de Atendimento
+                </label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <select
+                    value={selectedLocation || ''}
+                    onChange={(e) => setSelectedLocation(e.target.value ? Number(e.target.value) : null)}
+                    className="input pl-10"
+                    disabled={isLoading}
+                  >
+                    <option value="">Selecione um local (opcional)</option>
+                    {locations.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.clinic_name} - {location.city}/{location.state}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
               
