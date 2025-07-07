@@ -63,13 +63,16 @@ const EnhancedReportsPage: React.FC = () => {
   // Get default date range (current month)
   function getDefaultStartDate() {
     const date = new Date();
-    date.setDate(1); // First day of current month
-    return date.toISOString().split('T')[0];
+    // First day of current month, set to UTC to avoid timezone issues
+    const firstDay = new Date(Date.UTC(date.getFullYear(), date.getMonth(), 1));
+    return firstDay.toISOString().split('T')[0];
   }
   
   function getDefaultEndDate() {
     const date = new Date();
-    return date.toISOString().split('T')[0];
+    // Current day, set to UTC to avoid timezone issues
+    const today = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59));
+    return today.toISOString().split('T')[0];
   }
 
   useEffect(() => {
@@ -81,18 +84,38 @@ const EnhancedReportsPage: React.FC = () => {
       setIsLoading(true);
       setError('');
       
-      const token = localStorage.getItem('token');
-      const apiUrl = getApiUrl();
+      const token = localStorage.getItem('token');      
+      const apiUrl = getApiUrl();      
+      
+      // Adjust dates to ensure full day coverage
+      const startDateObj = new Date(startDate);
+      const endDateObj = new Date(endDate);
+      
+      // Set start date to beginning of day in UTC
+      const adjustedStartDate = new Date(Date.UTC(
+        startDateObj.getFullYear(),
+        startDateObj.getMonth(),
+        startDateObj.getDate(),
+        0, 0, 0
+      )).toISOString();
+      
+      // Set end date to end of day in UTC
+      const adjustedEndDate = new Date(Date.UTC(
+        endDateObj.getFullYear(),
+        endDateObj.getMonth(),
+        endDateObj.getDate(),
+        23, 59, 59
+      )).toISOString();
       
       // Fetch all reports
       const [newClientsRes, professionalRevenueRes, totalRevenueRes] = await Promise.all([
-        fetch(`${apiUrl}/api/reports/new-clients?start_date=${startDate}&end_date=${endDate}`, {
+        fetch(`${apiUrl}/api/reports/new-clients?start_date=${adjustedStartDate}&end_date=${adjustedEndDate}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`${apiUrl}/api/reports/professional-revenue-summary?start_date=${startDate}&end_date=${endDate}`, {
+        fetch(`${apiUrl}/api/reports/professional-revenue-summary?start_date=${adjustedStartDate}&end_date=${adjustedEndDate}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`${apiUrl}/api/reports/total-revenue?start_date=${startDate}&end_date=${endDate}`, {
+        fetch(`${apiUrl}/api/reports/total-revenue?start_date=${adjustedStartDate}&end_date=${adjustedEndDate}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ]);

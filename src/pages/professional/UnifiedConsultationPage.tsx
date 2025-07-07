@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Search, Calendar, User, Users, AlertTriangle, Clock, DollarSign, CheckCircle, XCircle, Plus } from 'lucide-react';
+import { Search, Calendar, User, Users, AlertTriangle, Clock, DollarSign, CheckCircle, XCircle, Plus, MapPin } from 'lucide-react';
 
 type Service = {
   id: number;
@@ -391,6 +391,7 @@ const UnifiedConsultationPage: React.FC = () => {
         service_id: serviceId,
         value: Number(value),
         location_id: selectedLocation,
+        location_id: selectedLocation,
         date: dateTime.toISOString(),
         notes: notes
       };
@@ -400,10 +401,12 @@ const UnifiedConsultationPage: React.FC = () => {
         endpoint = `${apiUrl}/api/consultations`;
         requestBody.client_id = selectedDependentId ? null : selectedPatientId;
         requestBody.dependent_id = selectedDependentId;
+        requestBody.location_id = selectedLocation;
       } else if (searchResult.type === 'particular') {
         // Create appointment for particular patient
         endpoint = `${apiUrl}/api/agenda/appointments`;
         requestBody.patient_id = selectedPatientId;
+        requestBody.location_id = selectedLocation;
         requestBody.status = 'completed'; // Mark as completed since it's a consultation
       }
       

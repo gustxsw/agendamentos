@@ -333,14 +333,16 @@ const ClinicAgendaPage: React.FC = () => {
                               <div>{getStatusText(appointment.status)}</div>
                               {appointment.patient_phone && (
                                 <a
-                                  href={`https://wa.me/55${appointment.patient_phone.replace(/\D/g, '')}`}
+                              <>
+                                <a
+                                  href={`https://wa.me/55${appointment.patient_phone.replace(/\D/g, '')}?text=Olá ${encodeURIComponent(appointment.patient_name)}, tudo bem? Gostaria de confirmar o seu agendamento no dia ${format(parseISO(appointment.date), "dd/MM/yyyy", { locale: ptBR })} às ${format(parseISO(appointment.date), "HH:mm", { locale: ptBR })} com o ${encodeURIComponent(appointment.professional_name)}.`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-green-600 hover:text-green-800 text-xs"
                                 >
                                   WhatsApp
                                 </a>
-                              )}
+                              </>
                             </>
                           </div>
                         ))}

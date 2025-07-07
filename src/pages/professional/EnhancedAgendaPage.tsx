@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Calendar, Clock, Users, Plus, Settings, AlertCircle, CreditCard, CheckCircle, XCircle, Edit, Trash2, Eye, ChevronLeft, ChevronRight, Grid, List, MapPin } from 'lucide-react';
+import { Calendar, Clock, Users, Settings, AlertCircle, CreditCard, CheckCircle, XCircle, Edit, Trash2, Eye, FileText } from 'lucide-react';
 import { format, addDays, startOfWeek, endOfWeek, isSameDay, parseISO, isValid, addMonths, startOfMonth, endOfMonth, getDay, getDaysInMonth, isSameMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -867,7 +867,7 @@ const EnhancedAgendaPage: React.FC = () => {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Agenda Profissional</h1>
-          <p className="text-gray-600">Gerencie seus agendamentos e pacientes</p>
+          <p className="text-gray-600">Visualize seus agendamentos</p>
         </div>
 
         <div className="flex items-center space-x-2">
@@ -998,22 +998,6 @@ const EnhancedAgendaPage: React.FC = () => {
                   onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
                   className="btn btn-outline flex items-center"
                 >
-                  Próximo Mês
-                  <ChevronRight className="h-5 w-5 ml-1" />
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        
-        <div className="flex justify-end mt-4">
-          <button
-            onClick={() => setShowAppointmentModal(true)}
-            className="btn btn-primary flex items-center"
-          >
-            <Plus className="h-5 w-5 mr-2" />
-            Novo Agendamento
-          </button>
         </div>
       </div>
 
@@ -1285,20 +1269,43 @@ const EnhancedAgendaPage: React.FC = () => {
                   );
                 })}
               </div>
-
-              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-600 mb-1">Duração do Slot (minutos)</label>
-                  <select
-                    value={configForm.slot_duration}
-                    onChange={(e) => setConfigForm({...configForm, slot_duration: parseInt(e.target.value)})}
-                    className="input"
-                  >
-                    <option value={15}>15 minutos</option>
-                    <option value={30}>30 minutos</option>
-                    <option value={45}>45 minutos</option>
-                    <option value={60}>60 minutos</option>
-                  </select>
+                  <div className="space-y-2">
+                    <select
+                      value={selectedAppointment.status}
+                      onChange={(e) => {
+                        handleUpdateAppointment(selectedAppointment.id, { status: e.target.value });
+                        setSelectedAppointment({...selectedAppointment, status: e.target.value});
+                      }}
+                      className="input"
+                    >
+                      <option value="scheduled">Agendado</option>
+                      <option value="confirmed">Confirmado</option>
+                      <option value="in_progress">Em Atendimento</option>
+                      <option value="completed">Finalizado</option>
+                      <option value="cancelled">Cancelado</option>
+                    </select>
+                    
+                    {selectedAppointment.status === 'confirmed' && (
+                      <a
+                        href={`https://wa.me/55${selectedAppointment.patient_phone.replace(/\D/g, '')}?text=Olá ${encodeURIComponent(selectedAppointment.patient_name)}, tudo bem? Gostaria de confirmar o seu agendamento no dia ${format(parseISO(selectedAppointment.date), "dd/MM/yyyy", { locale: ptBR })} às ${format(parseISO(selectedAppointment.date), "HH:mm", { locale: ptBR })} com o ${encodeURIComponent(user?.name || 'profissional')}.`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary flex items-center justify-center w-full mt-2"
+                      >
+                        <span className="text-green-600 font-medium">Enviar Confirmação via WhatsApp</span>
+                      </a>
+                    )}
+                    
+                    {selectedAppointment.status === 'completed' && (
+                      <a
+                        href={`/professional/medical-records/${selectedAppointment.patient_id}`}
+                        className="btn btn-primary flex items-center justify-center w-full mt-2"
+                      >
+                        <FileText className="h-4 w-4 mr-2" />
+                        <span>Registrar Prontuário</span>
+                      </a>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm text-gray-600 mb-1">Início do Intervalo</label>
