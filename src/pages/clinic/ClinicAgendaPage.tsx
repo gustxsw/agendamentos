@@ -328,18 +328,20 @@ const ClinicAgendaPage: React.FC = () => {
                             key={appointment.id}
                             className={`p-2 rounded text-xs ${getStatusColor(appointment.status)} mb-1`}
                           >
-                            <div className="font-medium">{appointment.patient_name}</div>
-                            <div>{getStatusText(appointment.status)}</div>
-                            {appointment.patient_phone && (
-                              <a
-                                href={`https://wa.me/55${appointment.patient_phone.replace(/\D/g, '')}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-green-600 hover:text-green-800 text-xs"
-                              >
-                                WhatsApp
-                              </a>
-                            )}
+                            <>
+                              <div className="font-medium">{appointment.patient_name}</div>
+                              <div>{getStatusText(appointment.status)}</div>
+                              {appointment.patient_phone && (
+                                <a
+                                  href={`https://wa.me/55${appointment.patient_phone.replace(/\D/g, '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-green-600 hover:text-green-800 text-xs"
+                                >
+                                  WhatsApp
+                                </a>
+                              )}
+                            </>
                           </div>
                         ))}
                       </div>
