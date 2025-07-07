@@ -179,7 +179,7 @@ const ClinicConsultationPage: React.FC = () => {
       console.log('🔍 Searching for CPF:', cleanCpf);
       
       // 1. First, try to find a dependent with this CPF
-      const dependentResponse = await fetch(`${apiUrl}/api/dependents/lookup?cpf=${cleanCpf}`, {
+      const dependentResponse = await fetch(`${apiUrl}/api/dependents/lookup/${cleanCpf}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
@@ -202,7 +202,7 @@ const ClinicConsultationPage: React.FC = () => {
       }
       
       // 2. Try to find as convenio client
-      const clientResponse = await fetch(`${apiUrl}/api/clients/lookup?cpf=${cleanCpf}`, {
+      const clientResponse = await fetch(`${apiUrl}/api/clients/lookup/${cleanCpf}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       

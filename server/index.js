@@ -1252,9 +1252,9 @@ app.delete('/api/dependents/:id', authenticate, authorize(['client']), async (re
 });
 
 // Lookup dependent by CPF
-app.get('/api/dependents/lookup', authenticate, async (req, res) => {
+app.get('/api/dependents/lookup/:cpf', authenticate, async (req, res) => {
   try {
-    const { cpf } = req.query;
+    const { cpf } = req.params;
     
     if (!cpf) {
       return res.status(400).json({ message: 'CPF é obrigatório' });
@@ -1282,9 +1282,9 @@ app.get('/api/dependents/lookup', authenticate, async (req, res) => {
 // ===== CLIENT ROUTES =====
 
 // Lookup client by CPF
-app.get('/api/clients/lookup', authenticate, async (req, res) => {
+app.get('/api/clients/lookup/:cpf', authenticate, async (req, res) => {
   try {
-    const { cpf } = req.query;
+    const { cpf } = req.params;
     
     if (!cpf) {
       return res.status(400).json({ message: 'CPF é obrigatório' });
@@ -1730,9 +1730,9 @@ app.put('/api/agenda/patients/:id/archive', authenticate, authorize(['profession
 });
 
 // Lookup agenda patient by CPF
-app.get('/api/agenda/patients/lookup', authenticate, authorize(['professional']), async (req, res) => {
+app.get('/api/agenda/patients/lookup/:cpf', authenticate, async (req, res) => {
   try {
-    const { cpf } = req.query;
+    const { cpf } = req.params;
     
     if (!cpf) {
       return res.status(400).json({ message: 'CPF é obrigatório' });

@@ -205,7 +205,7 @@ const UnifiedConsultationPage: React.FC = () => {
       console.log('🔍 Searching for CPF:', cleanCpf);
       
       // 1. First, try to find a dependent with this CPF
-      const dependentResponse = await fetch(`${apiUrl}/api/dependents/lookup?cpf=${cleanCpf}`, {
+      const dependentResponse = await fetch(`${apiUrl}/api/dependents/lookup/${cleanCpf}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
@@ -228,7 +228,7 @@ const UnifiedConsultationPage: React.FC = () => {
       }
       
       // 2. Try to find as convenio client
-      const clientResponse = await fetch(`${apiUrl}/api/clients/lookup?cpf=${cleanCpf}`, {
+      const clientResponse = await fetch(`${apiUrl}/api/clients/lookup/${cleanCpf}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
@@ -263,7 +263,7 @@ const UnifiedConsultationPage: React.FC = () => {
       
       // 3. Try to find as particular patient (only if has agenda subscription)
       if (subscriptionStatus?.can_use_agenda) {
-        const particularResponse = await fetch(`${apiUrl}/api/agenda/patients/lookup?cpf=${cleanCpf}`, {
+        const particularResponse = await fetch(`${apiUrl}/api/agenda/patients/lookup/${cleanCpf}`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
         

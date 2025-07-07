@@ -154,7 +154,7 @@ const RegisterConsultationPage: React.FC = () => {
       const cleanCpf = cpf.replace(/\D/g, '');
       
       // First, try to find a dependent with this CPF
-      const dependentResponse = await fetch(`${apiUrl}/api/dependents/lookup?cpf=${cleanCpf}`, {
+      const dependentResponse = await fetch(`${apiUrl}/api/dependents/lookup/${cleanCpf}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -182,7 +182,7 @@ const RegisterConsultationPage: React.FC = () => {
       }
       
       // If not found as dependent, try to find as client
-      const clientResponse = await fetch(`${apiUrl}/api/clients/lookup?cpf=${cleanCpf}`, {
+      const clientResponse = await fetch(`${apiUrl}/api/clients/lookup/${cleanCpf}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
