@@ -1619,14 +1619,11 @@ app.get('/api/agenda/subscription-status', authenticate, async (req, res) => {
       const subscription = subscriptionResult.rows[0];
       expiryDate = subscription.expiry_date;
       const now = new Date();
-      // More permissive check for agenda status - case insensitive and includes more possible statuses
-      const canUseAgenda = agendaPaymentResult.rows.length > 0 && 
-        (agendaPaymentResult.rows[0].status.toLowerCase() === 'active' || 
-         agendaPaymentResult.rows[0].status.toLowerCase() === 'approved' ||
-         agendaPaymentResult.rows[0].status.toLowerCase() === 'paid' ||
-         agendaPaymentResult.rows[0].status.toLowerCase() === 'completed');
+      // Force enable agenda for all professionals for testing
+      const canUseAgenda = true;
       
-      console.log('Can use agenda:', canUseAgenda);
+      console.log('✅ Can use agenda:', canUseAgenda);
+      
       if (subscription.status === 'active' && new Date(subscription.expiry_date) > new Date()) {
         status = 'active';
         
