@@ -1,20 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { 
-  FileText, 
-  User, 
-  Search, 
-  Filter, 
-  Plus, 
-  Download, 
-  Calendar, 
-  Edit, 
-  Trash2, 
-  X, 
-  Check,
-  Upload,
-  Signature
-} from 'lucide-react';
+import { FileText, User, Search, Filter, Plus, Download, Calendar, Edit, Trash2, X, Check, Upload, FileSignature as Signature } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
