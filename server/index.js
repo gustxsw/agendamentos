@@ -3498,6 +3498,9 @@ app.post('/api/upload-image', authenticate, async (req, res) => {
     uploadMiddleware.single('image')(req, res, async (err) => {
       if (err) {
         console.error('❌ Upload error:', err);
+      }
+    }
+    )
     // Use the processUpload middleware
     processUpload('image')(req, res, async (err) => {
       if (err) return res.status(400).json({ message: err.message });
