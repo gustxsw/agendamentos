@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Phone, MapPin, Briefcase, Mail, Calendar, Camera, X } from "lucide-react";
+import { Phone, MapPin, Briefcase, Mail, Calendar, Camera, X, Search, Filter } from "lucide-react";
 
 type Professional = {
   id: number;
@@ -19,8 +19,14 @@ type Professional = {
 
 const ProfessionalsPage: React.FC = () => {
   const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [filteredProfessionals, setFilteredProfessionals] = useState<Professional[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  
+  // Search and filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
+  const [availableCities, setAvailableCities] = useState<string[]>([]);
   
   // 🔥 NEW: Modal state for photo viewing
   const [selectedPhoto, setSelectedPhoto] = useState<{
@@ -70,6 +76,16 @@ const ProfessionalsPage: React.FC = () => {
         console.log("Professionals data received:", data);
         
         setProfessionals(data);
+        setFilteredProfessionals(data);
+        
+        // Extract unique cities from professionals data
+        const cities = data
+          .map(p => p.city)
+          .filter((city): city is string => !!city)
+          .filter((value, index, self) => self.indexOf(value) === index)
+          .sort();
+        
+        setAvailableCities(cities);
       } catch (error) {
         console.error("Error fetching professionals:", error);
         setError("Não foi possível carregar a lista de profissionais");
@@ -80,6 +96,34 @@ const ProfessionalsPage: React.FC = () => {
 
     fetchProfessionals();
   }, []);
+  
+  // Apply filters when search term or city filter changes
+  useEffect(() => {
+    let filtered = professionals;
+    
+    // Apply city filter
+    if (cityFilter) {
+      filtered = filtered.filter(professional => 
+        professional.city?.toLowerCase() === cityFilter.toLowerCase()
+      );
+    }
+    
+    // Apply search term
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(professional => 
+        professional.name.toLowerCase().includes(searchLower) ||
+        professional.category_name?.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    setFilteredProfessionals(filtered);
+  }, [professionals, searchTerm, cityFilter]);
+  
+  const resetFilters = () => {
+    setSearchTerm('');
+    setCityFilter('');
+  };
 
   // 🔥 NEW: Function to open photo modal
   const openPhotoModal = (photoUrl: string, professionalName: string) => {
@@ -149,6 +193,67 @@ const ProfessionalsPage: React.FC = () => {
           Conheça nossa equipe de profissionais qualificados
         </p>
       </div>
+      
+      {/* Search and Filter Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+        <div className="flex items-center mb-4">
+          <Filter className="h-5 w-5 text-red-600 mr-2" />
+          <h2 className="text-lg font-semibold">Filtrar Profissionais</h2>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Search by name or specialty */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Buscar
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Nome ou especialidade..."
+                className="input pl-10"
+              />
+            </div>
+          </div>
+          
+          {/* Filter by city */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Cidade
+            </label>
+            <select
+              value={cityFilter}
+              onChange={(e) => setCityFilter(e.target.value)}
+              className="input"
+            >
+              <option value="">Todas as cidades</option>
+              {availableCities.map(city => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+          </div>
+          
+          {/* Reset filters */}
+          <div className="flex items-end">
+            <button
+              onClick={resetFilters}
+              className="btn btn-secondary w-full"
+            >
+              Limpar Filtros
+            </button>
+          </div>
+        </div>
+        
+        {/* Filter summary */}
+        <div className="mt-4 text-sm text-gray-600">
+          {filteredProfessionals.length} profissional(is) encontrado(s)
+          {searchTerm && ` para "${searchTerm}"`}
+          {cityFilter && ` em ${cityFilter}`}
+        </div>
+      </div>
 
       {error && (
         <div className="bg-red-50 text-red-600 p-4 rounded-lg mb-6 flex items-center">
@@ -174,7 +279,7 @@ const ProfessionalsPage: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {professionals.map((professional) => (
+          {filteredProfessionals.map((professional) => (
             <div
               key={professional.id}
               className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all duration-200 hover:scale-105"
