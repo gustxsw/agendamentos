@@ -391,7 +391,6 @@ const UnifiedConsultationPage: React.FC = () => {
         service_id: serviceId,
         value: Number(value),
         location_id: selectedLocation,
-        location_id: selectedLocation,
         date: dateTime.toISOString(),
         notes: notes
       };
