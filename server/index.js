@@ -1597,77 +1597,47 @@ app.delete('/api/professional-locations/:id', authenticate, async (req, res) => 
 app.get('/api/agenda/subscription-status', authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
-
-    // Since agenda_payments table doesn't exist, we'll enable agenda for all professionals
-    const canUseAgenda = true;
+    console.log('Checking agenda subscription status for user:', userId);
     
-    // Get expiration date if available
-    let expiresAt = null;
-    let daysRemaining = 0;
-    
-    // Check if user is a professional
-    if (!req.user.roles.includes('professional')) {
-      return res.status(403).json({ message: 'Acesso não autorizado' });
-    }
-    
-    // Get professional subscription
-    const subscriptionResult = await pool.query(
-      `SELECT * FROM professional_subscriptions
-       WHERE professional_id = $1
-       ORDER BY expiry_date DESC
-       LIMIT 1`,
-      [req.user.id]
+    // Check if professional has active agenda subscription
+    const agendaPaymentResult = await pool.query(
+      'SELECT status, expiry_date FROM agenda_payments WHERE professional_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [userId]
     );
+
+    console.log('Agenda payment result:', agendaPaymentResult.rows);
     
-    let status = 'pending';
-    let expiryDate = null;
+    const hasActiveSubscription = agendaPaymentResult.rows.length > 0 && 
+      agendaPaymentResult.rows[0].status === 'active';
+    
+    const expiryDate = hasActiveSubscription ? agendaPaymentResult.rows[0].expiry_date : null;
+    
+    // Calculate days remaining if there's an expiry date
     let daysRemaining = 0;
-    let canUseAgenda = false;
-    
-    if (subscriptionResult.rows.length > 0) {
-      const subscription = subscriptionResult.rows[0];
-      expiryDate = subscription.expiry_date;
+    if (expiryDate) {
       const now = new Date();
-      // Force enable agenda for all professionals for testing
-      const canUseAgenda = true;
-      
-      console.log('✅ Can use agenda:', canUseAgenda);
-      
-      if (subscription.status === 'active' && new Date(subscription.expiry_date) > new Date()) {
-        status = 'active';
-        
-        // Calculate days remaining
-        const today = new Date();
-        const expiry = new Date(subscription.expiry_date);
-        const diffTime = Math.abs(expiry - today);
-        daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        canUseAgenda = true;
-      } else {
-        status = 'expired';
-      }
+      const expiry = new Date(expiryDate);
+      daysRemaining = Math.max(0, Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
     }
     
     res.json({
-      status,
+      status: hasActiveSubscription ? 'active' : 'pending',
       expires_at: expiryDate,
       days_remaining: daysRemaining,
-      can_use_agenda: canUseAgenda,
-      last_payment: subscriptionResult.rows[0]?.created_at
+      can_use_agenda: hasActiveSubscription
     });
   } catch (error) {
-    console.error('Error fetching subscription status:', error);
-    res.status(500).json({ message: 'Erro ao buscar status da assinatura' });
+    console.error('Error checking agenda subscription:', error);
+    res.status(500).json({ message: 'Erro ao verificar status da assinatura da agenda' });
   }
 });
 
 app.post('/api/agenda/create-subscription-payment', authenticate, async (req, res) => {
   try {
-    const userId = req.user.id;
-
-    // Since agenda_payments table doesn't exist, we'll skip this check
+    const professionalId = req.user.id;
+    console.log('Creating agenda subscription payment for user:', professionalId);
     
-    // Create payment preference with MercadoPago
+    // Create a payment preference with MercadoPago
     const preference = {
       items: [
         {
@@ -1682,21 +1652,28 @@ app.post('/api/agenda/create-subscription-payment', authenticate, async (req, re
         pending: `${process.env.FRONTEND_URL}/professional/agenda`
       },
       auto_return: 'approved',
-      external_reference: `agenda_${userId}`,
-      notification_url: `${process.env.API_URL}/api/agenda/verify-payment`
+      external_reference: `agenda_${professionalId}`,
+      notification_url: `${process.env.API_URL}/api/webhooks/mercadopago`
     };
     
-    console.log('Payment preference created:', preference);
+    // Create a record in the database
+    const now = new Date();
+    const expiryDate = new Date(now);
+    expiryDate.setMonth(expiryDate.getMonth() + 1); // Set expiry to 1 month from now
     
-    // Since agenda_payments table doesn't exist, we'll skip saving payment information
+    // Insert payment record
+    await pool.query(
+      'INSERT INTO agenda_payments (professional_id, amount, status, payment_date, expiry_date) VALUES ($1, $2, $3, $4, $5)',
+      [professionalId, 49.90, 'pending', now, expiryDate]
+    );
     
-    return res.status(200).json({
-      id: preference.id,
-      init_point: preference.init_point
+    res.json({
+      init_point: preference.init_point,
+      id: preference.id
     });
   } catch (error) {
-    console.error('Error creating subscription payment:', error);
-    res.status(500).json({ message: 'Erro ao criar pagamento da assinatura' });
+    console.error('Error creating agenda subscription payment:', error);
+    res.status(500).json({ message: 'Erro ao criar pagamento da assinatura da agenda' });
   }
 });
 
@@ -3348,22 +3325,41 @@ app.post('/api/generate-document', authenticate, async (req, res) => {
 // MercadoPago webhook
 app.post('/api/webhooks/mercadopago', async (req, res) => {
   try {
-    const { type, data } = req.body;
+    const data = req.body;
+    console.log('Received MercadoPago webhook:', data);
     
-    if (type === 'payment') {
-      const paymentId = data.id;
+    // Check if it's a payment notification
+    if (data.type === 'payment' && data.data && data.data.id) {
+      const paymentId = data.data.id;
       
       // Get payment details from MercadoPago
-      // In a real implementation, you would use the MercadoPago API to get payment details
+      const payment = await mercadopago.payment.get(paymentId);
+      console.log('Payment details:', payment);
       
-      // For this example, we'll just acknowledge the webhook
-      console.log('Received payment webhook:', paymentId);
+      if (payment.status === 'approved' || payment.status === 'authorized') {
+        // Extract professional ID from external reference or metadata
+        const professionalId = payment.external_reference;
+        
+        if (professionalId) {
+          // Update agenda payment status
+          const now = new Date();
+          const expiryDate = new Date(now);
+          expiryDate.setMonth(expiryDate.getMonth() + 1); // 1 month from now
+          
+          await pool.query(
+            'UPDATE agenda_payments SET status = $1, payment_date = $2, expiry_date = $3, updated_at = $4 WHERE professional_id = $5 AND status = $6',
+            ['active', now, expiryDate, now, professionalId, 'pending']
+          );
+          
+          console.log(`Updated agenda payment status for professional ${professionalId} to active`);
+        }
+      }
     }
     
-    res.status(200).send();
+    res.status(200).send('OK');
   } catch (error) {
-    console.error('Error processing webhook:', error);
-    res.status(500).send();
+    console.error('Error processing MercadoPago webhook:', error);
+    res.status(500).json({ message: 'Error processing webhook' });
   }
 });
 
