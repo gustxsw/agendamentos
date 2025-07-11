@@ -28,6 +28,7 @@ import EnhancedAgendaPage from "./pages/professional/EnhancedAgendaPage";
 import EnhancedPatientsPage from "./pages/professional/EnhancedPatientsPage";
 import EnhancedReportsPage from "./pages/professional/EnhancedReportsPage";
 import DocumentsPage from "./pages/professional/DocumentsPage";
+import DocumentsPage from "./pages/professional/DocumentsPage";
 import EnhancedAdminReportsPage from "./pages/admin/EnhancedReportsPage";
 
 // 🔥 NEW: Clinic pages
@@ -129,6 +130,7 @@ function App() {
         <Route path="/professional/patients" element={<EnhancedPatientsPage />} />
         <Route path="/professional/medical-records" element={<MedicalRecordsPage />} />
         <Route path="/professional/medical-records/:patientId" element={<MedicalRecordsPage />} />
+        <Route path="/professional/documents" element={<DocumentsPage />} />
         <Route path="/professional/documents" element={<DocumentsPage />} />
         <Route path="/professional/reports" element={<EnhancedReportsPage />} />
         <Route path="/professional/profile" element={<ProfilePage />} />
