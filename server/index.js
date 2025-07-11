@@ -10,6 +10,8 @@ import cookieParser from 'cookie-parser';
 import { authenticate, authorize } from './middleware/auth.js';
 import createUpload from './middleware/upload.js';
 import { format } from 'date-fns';
+import handlebars from 'handlebars';
+import puppeteer from 'puppeteer';
 
 // Load environment variables
 dotenv.config();
@@ -3068,6 +3070,403 @@ app.post('/api/webhooks/mercadopago', async (req, res) => {
   } catch (error) {
     console.error('Error processing MercadoPago webhook:', error);
     res.status(500).json({ message: 'Erro ao processar webhook' });
+  }
+});
+
+// Document Templates API
+// Create document template
+app.post("/api/document-templates", authenticate, authorize(["admin"]), async (req, res) => {
+  try {
+    const { name, type, content } = req.body;
+    
+    if (!name || !type || !content) {
+      return res.status(400).json({ message: "Nome, tipo e conteúdo são obrigatórios" });
+    }
+    
+    const result = await pool.query(
+      `INSERT INTO document_templates (name, type, content) 
+       VALUES ($1, $2, $3) 
+       RETURNING *`,
+      [name, type, content]
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error creating document template:", error);
+    res.status(500).json({ message: "Erro ao criar template de documento" });
+  }
+});
+
+// Get all document templates
+app.get("/api/document-templates", authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM document_templates ORDER BY type, name`
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching document templates:", error);
+    res.status(500).json({ message: "Erro ao buscar templates de documentos" });
+  }
+});
+
+// Get document templates by type
+app.get("/api/document-templates/type/:type", authenticate, async (req, res) => {
+  try {
+    const { type } = req.params;
+    
+    const result = await pool.query(
+      `SELECT * FROM document_templates WHERE type = $1 ORDER BY name`,
+      [type]
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching document templates by type:", error);
+    res.status(500).json({ message: "Erro ao buscar templates de documentos" });
+  }
+});
+
+// Get document template by id
+app.get("/api/document-templates/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query(
+      `SELECT * FROM document_templates WHERE id = $1`,
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Template não encontrado" });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error fetching document template:", error);
+    res.status(500).json({ message: "Erro ao buscar template de documento" });
+  }
+});
+
+// Update document template
+app.put("/api/document-templates/:id", authenticate, authorize(["admin"]), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, type, content } = req.body;
+    
+    if (!name || !type || !content) {
+      return res.status(400).json({ message: "Nome, tipo e conteúdo são obrigatórios" });
+    }
+    
+    const result = await pool.query(
+      `UPDATE document_templates 
+       SET name = $1, type = $2, content = $3, updated_at = NOW() 
+       WHERE id = $4 
+       RETURNING *`,
+      [name, type, content, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Template não encontrado" });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error updating document template:", error);
+    res.status(500).json({ message: "Erro ao atualizar template de documento" });
+  }
+});
+
+// Delete document template
+app.delete("/api/document-templates/:id", authenticate, authorize(["admin"]), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query(
+      `DELETE FROM document_templates WHERE id = $1 RETURNING *`,
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Template não encontrado" });
+    }
+    
+    res.json({ message: "Template excluído com sucesso" });
+  } catch (error) {
+    console.error("Error deleting document template:", error);
+    res.status(500).json({ message: "Erro ao excluir template de documento" });
+  }
+});
+
+// Generate document from template
+app.post("/api/generate-document", authenticate, async (req, res) => {
+  try {
+    const { template_id, patient_id, professional_id, ...templateData } = req.body;
+    
+    if (!template_id || !patient_id) {
+      return res.status(400).json({ message: "ID do template e ID do paciente são obrigatórios" });
+    }
+    
+    // Get template
+    const templateResult = await pool.query(
+      `SELECT * FROM document_templates WHERE id = $1`,
+      [template_id]
+    );
+    
+    if (templateResult.rows.length === 0) {
+      return res.status(404).json({ message: "Template não encontrado" });
+    }
+    
+    const template = templateResult.rows[0];
+    
+    // Get patient data
+    const patientResult = await pool.query(
+      `SELECT * FROM users WHERE id = $1`,
+      [patient_id]
+    );
+    
+    if (patientResult.rows.length === 0) {
+      return res.status(404).json({ message: "Paciente não encontrado" });
+    }
+    
+    const patient = patientResult.rows[0];
+    
+    // Get professional data if provided
+    let professional = null;
+    if (professional_id) {
+      const professionalResult = await pool.query(
+        `SELECT * FROM users WHERE id = $1`,
+        [professional_id]
+      );
+      
+      if (professionalResult.rows.length > 0) {
+        professional = professionalResult.rows[0];
+      }
+    }
+    
+    // Prepare data for template
+    const data = {
+      nome: patient.name,
+      cpf: patient.cpf,
+      email: patient.email,
+      telefone: patient.phone,
+      endereco: patient.address,
+      numero: patient.address_number,
+      complemento: patient.address_complement,
+      bairro: patient.neighborhood,
+      cidade: patient.city,
+      estado: patient.state,
+      data_atual: new Date().toLocaleDateString('pt-BR'),
+      hora_atual: new Date().toLocaleTimeString('pt-BR'),
+      ...templateData
+    };
+    
+    // Add professional data if available
+    if (professional) {
+      data.profissional_nome = professional.name;
+      data.profissional_registro = professional.professional_registration || '';
+      data.profissional_assinatura = professional.signature_url || '';
+    }
+    
+    // Compile template with Handlebars
+    const compiledTemplate = handlebars.compile(template.content);
+    const html = compiledTemplate(data);
+    
+    // Generate PDF with puppeteer
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    
+    // Add page numbers if document has multiple pages
+    await page.evaluateHandle(() => {
+      const style = document.createElement('style');
+      style.innerHTML = `
+        @media print {
+          .pageNumber:after {
+            content: counter(page);
+          }
+          
+          .pageCount:before {
+            content: counter(pages);
+          }
+          
+          footer {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 10px;
+            color: #666;
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    });
+    
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
+      displayHeaderFooter: true,
+      footerTemplate: `
+        <footer style="width: 100%; text-align: center; font-size: 10px; color: #666;">
+          <span>Página <span class="pageNumber"></span> de <span class="pageCount"></span></span>
+        </footer>
+      `
+    });
+    
+    await browser.close();
+    
+    // Upload PDF to Cloudinary
+    const { v2: cloudinary } = await import('cloudinary');
+    
+    // Configure Cloudinary
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true
+    });
+    
+    // Convert PDF buffer to base64
+    const base64Pdf = pdfBuffer.toString('base64');
+    
+    // Generate a unique filename
+    const filename = `${template.type}_${patient_id}_${Date.now()}`;
+    
+    // Upload to Cloudinary
+    const uploadResult = await new Promise((resolve, reject) => {
+      cloudinary.uploader.upload(
+        `data:application/pdf;base64,${base64Pdf}`,
+        {
+          resource_type: 'raw',
+          public_id: filename,
+          folder: 'quiro-ferreira/documents',
+          format: 'pdf',
+          type: 'private'
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+    });
+    
+    // Save document to database
+    const documentResult = await pool.query(
+      `INSERT INTO generated_documents (patient_id, professional_id, type, url) 
+       VALUES ($1, $2, $3, $4) 
+       RETURNING *`,
+      [patient_id, professional_id, template.type, uploadResult.secure_url]
+    );
+    
+    const generatedDocument = documentResult.rows[0];
+    
+    res.json({
+      document: generatedDocument,
+      url: uploadResult.secure_url
+    });
+  } catch (error) {
+    console.error("Error generating document:", error);
+    res.status(500).json({ message: "Erro ao gerar documento", error: error.message });
+  }
+});
+
+// Get generated documents for a patient
+app.get("/api/generated-documents/patient/:patientId", authenticate, async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    const result = await pool.query(
+      `SELECT gd.*, dt.name as template_name, u.name as professional_name
+       FROM generated_documents gd
+       LEFT JOIN users u ON gd.professional_id = u.id
+       LEFT JOIN document_templates dt ON gd.type = dt.type
+       WHERE gd.patient_id = $1
+       ORDER BY gd.created_at DESC`,
+      [patientId]
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching patient documents:", error);
+    res.status(500).json({ message: "Erro ao buscar documentos do paciente" });
+  }
+});
+
+// Get generated documents for a professional
+app.get("/api/generated-documents/professional/:professionalId", authenticate, async (req, res) => {
+  try {
+    const { professionalId } = req.params;
+    
+    const result = await pool.query(
+      `SELECT gd.*, dt.name as template_name, u.name as patient_name
+       FROM generated_documents gd
+       LEFT JOIN users u ON gd.patient_id = u.id
+       LEFT JOIN document_templates dt ON gd.type = dt.type
+       WHERE gd.professional_id = $1
+       ORDER BY gd.created_at DESC`,
+      [professionalId]
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching professional documents:", error);
+    res.status(500).json({ message: "Erro ao buscar documentos do profissional" });
+  }
+});
+
+// Get document by id
+app.get("/api/generated-documents/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query(
+      `SELECT gd.*, dt.name as template_name, 
+              p.name as patient_name, p.cpf as patient_cpf,
+              u.name as professional_name, u.professional_registration
+       FROM generated_documents gd
+       LEFT JOIN users p ON gd.patient_id = p.id
+       LEFT JOIN users u ON gd.professional_id = u.id
+       LEFT JOIN document_templates dt ON gd.type = dt.type
+       WHERE gd.id = $1`,
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Documento não encontrado" });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error fetching document:", error);
+    res.status(500).json({ message: "Erro ao buscar documento" });
+  }
+});
+
+// Save professional signature
+app.post("/api/professional/signature", authenticate, authorize(["professional"]), async (req, res) => {
+  try {
+    const { signature_url } = req.body;
+    
+    if (!signature_url) {
+      return res.status(400).json({ message: "URL da assinatura é obrigatória" });
+    }
+    
+    const result = await pool.query(
+      `UPDATE users SET signature_url = $1 WHERE id = $2 RETURNING id, signature_url`,
+      [signature_url, req.user.id]
+    );
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error saving signature:", error);
+    res.status(500).json({ message: "Erro ao salvar assinatura" });
   }
 });
 

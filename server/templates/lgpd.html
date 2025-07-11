@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Termo de Consentimento LGPD</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .logo {
+      max-width: 200px;
+      margin-bottom: 10px;
+    }
+    h1 {
+      font-size: 24px;
+      text-transform: uppercase;
+      margin-bottom: 30px;
+      text-align: center;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 10px;
+    }
+    h2 {
+      font-size: 18px;
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }
+    .content {
+      line-height: 1.6;
+      text-align: justify;
+    }
+    .signature-area {
+      margin-top: 60px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .signature {
+      text-align: center;
+      width: 45%;
+    }
+    .signature img {
+      max-width: 200px;
+      max-height: 80px;
+    }
+    .signature-line {
+      margin-top: 10px;
+      border-top: 1px solid #000;
+      padding-top: 10px;
+      font-weight: bold;
+    }
+    .footer {
+      margin-top: 40px;
+      font-size: 12px;
+      text-align: center;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="https://res.cloudinary.com/dxzqcxcwj/image/upload/v1/quiro-ferreira/logo_quiroferreira.svg" alt="Logo Quiro Ferreira" class="logo">
+    <p>Convênio Quiro Ferreira Saúde</p>
+  </div>
+
+  <h1>Termo de Consentimento para Tratamento de Dados Pessoais</h1>
+
+  <div class="content">
+    <p>Eu, <strong>{{nome}}</strong>, portador(a) do CPF <strong>{{cpf}}</strong>, em conformidade com a Lei Geral de Proteção de Dados Pessoais (LGPD) - Lei nº 13.709/2018, autorizo o Convênio Quiro Ferreira Saúde a realizar o tratamento dos meus dados pessoais e dados pessoais sensíveis, conforme descrito neste documento.</p>
+    
+    <h2>1. Dados Pessoais Coletados</h2>
+    <p>Autorizo a coleta e o tratamento dos seguintes dados pessoais:</p>
+    <ul>
+      <li>Nome completo</li>
+      <li>CPF</li>
+      <li>Endereço residencial</li>
+      <li>Telefone</li>
+      <li>E-mail</li>
+      <li>Data de nascimento</li>
+    </ul>
+    
+    <h2>2. Dados Pessoais Sensíveis</h2>
+    <p>Autorizo a coleta e o tratamento dos seguintes dados pessoais sensíveis:</p>
+    <ul>
+      <li>Informações de saúde</li>
+      <li>Histórico médico</li>
+      <li>Resultados de exames</li>
+      <li>Diagnósticos</li>
+      <li>Tratamentos realizados</li>
+    </ul>
+    
+    <h2>3. Finalidade do Tratamento</h2>
+    <p>Os dados serão utilizados para as seguintes finalidades:</p>
+    <ul>
+      <li>Prestação de serviços de saúde</li>
+      <li>Agendamento de consultas</li>
+      <li>Emissão de documentos médicos</li>
+      <li>Faturamento e cobrança</li>
+      <li>Comunicação sobre tratamentos e procedimentos</li>
+    </ul>
+    
+    <h2>4. Compartilhamento de Dados</h2>
+    <p>Os dados poderão ser compartilhados com:</p>
+    <ul>
+      <li>Profissionais de saúde envolvidos no atendimento</li>
+      <li>Laboratórios e clínicas parceiras para realização de exames</li>
+      <li>Operadoras de planos de saúde, quando aplicável</li>
+      <li>Autoridades públicas, quando exigido por lei</li>
+    </ul>
+    
+    <h2>5. Direitos do Titular</h2>
+    <p>Estou ciente de que, como titular dos dados, possuo os seguintes direitos:</p>
+    <ul>
+      <li>Confirmação da existência de tratamento</li>
+      <li>Acesso aos dados</li>
+      <li>Correção de dados incompletos, inexatos ou desatualizados</li>
+      <li>Anonimização, bloqueio ou eliminação de dados desnecessários, excessivos ou tratados em desconformidade com a LGPD</li>
+      <li>Portabilidade dos dados</li>
+      <li>Revogação do consentimento</li>
+    </ul>
+    
+    <p>Declaro estar ciente que posso revogar este consentimento a qualquer momento, mediante solicitação expressa ao Convênio Quiro Ferreira Saúde, ressalvadas as hipóteses em que houver obrigação legal de retenção dos dados.</p>
+  </div>
+
+  <div class="signature-area">
+    <div class="signature">
+      <div class="signature-line">
+        {{nome}}<br>
+        CPF: {{cpf}}
+      </div>
+    </div>
+    
+    <div class="signature">
+      {{#if profissional_assinatura}}
+      <img src="{{profissional_assinatura}}" alt="Assinatura Digital">
+      {{/if}}
+      <div class="signature-line">
+        {{profissional_nome}}<br>
+        {{profissional_registro}}
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>Documento gerado eletronicamente em {{data_atual}} às {{hora_atual}}</p>
+    <p>Convênio Quiro Ferreira Saúde - Todos os direitos reservados</p>
+  </div>
+</body>
+</html>

@@ -4,7 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { 
   Home, 
   Users, 
-  FileText, 
+  FileText,
+  FilePlus,
   BarChart2, 
   Calendar, 
   UserPlus, 
@@ -36,6 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onItemClick }) => {
         { to: '/professional/agenda', icon: <CalendarDays size={20} />,  label: 'Agenda' },
         { to: '/professional/patients', icon: <Stethoscope size={20} />, label: 'Pacientes' },
         { to: '/professional/medical-records', icon: <FileText size={20} />, label: 'Prontuários' },
+        { to: '/professional/documents', icon: <FilePlus size={20} />, label: 'Documentos' },
         { to: '/professional/reports', icon: <BarChart2 size={20} />, label: 'Relatórios' },
         { to: '/professional/profile', icon: <User size={20} />, label: 'Perfil' },
       ];

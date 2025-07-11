@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Declaração de Comparecimento</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .logo {
+      max-width: 200px;
+      margin-bottom: 10px;
+    }
+    h1 {
+      font-size: 24px;
+      text-transform: uppercase;
+      margin-bottom: 30px;
+      text-align: center;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 10px;
+    }
+    .content {
+      line-height: 1.6;
+      text-align: justify;
+    }
+    .signature {
+      margin-top: 60px;
+      text-align: center;
+    }
+    .signature img {
+      max-width: 200px;
+      max-height: 80px;
+    }
+    .signature-line {
+      margin-top: 10px;
+      border-top: 1px solid #000;
+      width: 250px;
+      margin-left: auto;
+      margin-right: auto;
+      padding-top: 10px;
+      font-weight: bold;
+    }
+    .footer {
+      margin-top: 40px;
+      font-size: 12px;
+      text-align: center;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="https://res.cloudinary.com/dxzqcxcwj/image/upload/v1/quiro-ferreira/logo_quiroferreira.svg" alt="Logo Quiro Ferreira" class="logo">
+    <p>Convênio Quiro Ferreira Saúde</p>
+  </div>
+
+  <h1>Declaração de Comparecimento</h1>
+
+  <div class="content">
+    <p>Declaro para os devidos fins que o(a) Sr(a). <strong>{{nome}}</strong>, portador(a) do CPF <strong>{{cpf}}</strong>, compareceu a esta unidade de saúde no dia <strong>{{data_consulta}}</strong>, no horário de <strong>{{hora_inicio}}</strong> às <strong>{{hora_fim}}</strong>, para atendimento/procedimento de <strong>{{procedimento}}</strong>.</p>
+    
+    <p>{{observacoes}}</p>
+  </div>
+
+  <div class="signature">
+    {{#if profissional_assinatura}}
+    <img src="{{profissional_assinatura}}" alt="Assinatura Digital">
+    {{/if}}
+    <div class="signature-line">
+      {{profissional_nome}}<br>
+      {{profissional_registro}}
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>Documento gerado eletronicamente em {{data_atual}} às {{hora_atual}}</p>
+    <p>Convênio Quiro Ferreira Saúde - Todos os direitos reservados</p>
+  </div>
+</body>
+</html>
