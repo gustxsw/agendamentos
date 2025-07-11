@@ -3473,25 +3473,41 @@ app.post("/api/professional/signature", authenticate, authorize(["professional"]
 // ===== FILE UPLOAD ROUTES =====
 
 // Upload image
-app.post('/api/upload-image', authenticate, upload.single('image'), async (req, res) => {
+app.post('/api/upload-image', authenticate, async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: 'Nenhum arquivo enviado' });
+    // Use the existing upload middleware
+    const uploadMiddleware = createUpload();
+    
+    if (!uploadMiddleware) {
+      return res.status(500).json({ message: 'Erro ao configurar upload' });
     }
     
-    // Update user's photo_url
-    await pool.query(
-      'UPDATE users SET photo_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-      [req.file.path, req.user.id]
-    );
-    
-    res.json({
-      message: 'Imagem enviada com sucesso',
-      imageUrl: req.file.path
+    // Use the middleware
+    uploadMiddleware.single('image')(req, res, async (err) => {
+      if (err) {
+        console.error('❌ Upload error:', err);
+        return res.status(400).json({ message: err.message || 'Erro ao fazer upload da imagem' });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ message: 'Nenhuma imagem enviada' });
+      }
+      
+      // Update user's photo_url
+      await pool.query(
+        'UPDATE users SET photo_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [req.file.path, req.user.id]
+      );
+      
+      // Image uploaded successfully
+      res.status(200).json({
+        message: 'Imagem enviada com sucesso',
+        imageUrl: req.file.path
+      });
     });
   } catch (error) {
-    console.error('Error uploading image:', error);
-    res.status(500).json({ message: 'Erro ao enviar imagem' });
+    console.error('❌ Error uploading image:', error);
+    res.status(500).json({ message: 'Erro ao fazer upload da imagem' });
   }
 });
 
