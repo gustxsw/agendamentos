@@ -65,7 +65,7 @@ const createStorage = () => {
 };
 
 // Create multer instance
-const createUpload = () => {
+const createUploadMiddleware = () => {
   try {
     const storage = createStorage();
     
@@ -137,4 +137,4 @@ const createUpload = () => {
   }
 };
 
-export default createUpload;
+export default createUploadMiddleware;

@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import { authenticate, authorize } from './middleware/auth.js';
-import createUpload from './middleware/upload.js';
+import createUploadMiddleware from './middleware/upload.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -34,8 +34,8 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://www.cartaoquiroferreira.com.br', 'https://cartaoquiroferreira.com.br'],
-  credentials: true
+  const { upload: uploadMiddleware, processUpload } = createUploadMiddleware();
+  upload = { single: processUpload };
 }));
 app.use(express.json());
 app.use(cookieParser());
