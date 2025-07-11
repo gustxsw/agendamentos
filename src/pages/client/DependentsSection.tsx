@@ -250,7 +250,8 @@ const DependentsSection: React.FC<DependentsSectionProps> = ({ clientId }) => {
           <h2 className="text-xl font-semibold">Dependentes</h2>
         </div>
         
-        {dependents.length < 10 && (
+        {/* Remove button here to avoid duplication - it will appear in the empty state below */}
+        {false && dependents.length < 10 && (
           <button
             onClick={openCreateModal}
             className="btn btn-primary flex items-center"
@@ -280,58 +281,62 @@ const DependentsSection: React.FC<DependentsSectionProps> = ({ clientId }) => {
       ) : dependents.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 rounded-lg">
           <p className="text-gray-600">Você ainda não possui dependentes cadastrados.</p>
-          <button
-            onClick={openCreateModal}
-            className="btn btn-primary mt-4 inline-flex items-center"
-          >
-            <UserPlus className="h-5 w-5 mr-2" />
-            Adicionar Dependente
-          </button>
+          {dependents.length < 10 && (
+            <button
+              onClick={openCreateModal}
+              className="btn btn-primary mt-4 inline-flex items-center"
+            >
+              <UserPlus className="h-5 w-5 mr-2" />
+              Adicionar Dependente
+            </button>
+          )}
         </div>
       ) : (
         <div className="table-container">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>CPF</th>
-                <th>Data de Nascimento</th>
-                <th>Data de Cadastro</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dependents.map((dependent) => (
-                <tr key={dependent.id}>
-                  <td className="flex items-center">
-                    <User className="h-5 w-5 mr-2 text-gray-500" />
-                    {dependent.name}
-                  </td>
-                  <td>{formattedCpf(dependent.cpf)}</td>
-                  <td>{formatDate(dependent.birth_date)}</td>
-                  <td>{formatDate(dependent.created_at)}</td>
-                  <td>
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => openEditModal(dependent)}
-                        className="p-1 text-blue-600 hover:text-blue-800"
-                        title="Editar"
-                      >
-                        <Edit className="h-5 w-5" />
-                      </button>
-                      <button
-                        onClick={() => confirmDelete(dependent)}
-                        className="p-1 text-red-600 hover:text-red-800"
-                        title="Excluir"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </td>
+          <div className="max-h-[400px] overflow-y-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>CPF</th>
+                  <th>Data de Nascimento</th>
+                  <th>Data de Cadastro</th>
+                  <th>Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {dependents.map((dependent) => (
+                  <tr key={dependent.id}>
+                    <td className="flex items-center">
+                      <User className="h-5 w-5 mr-2 text-gray-500" />
+                      {dependent.name}
+                    </td>
+                    <td>{formattedCpf(dependent.cpf)}</td>
+                    <td>{formatDate(dependent.birth_date)}</td>
+                    <td>{formatDate(dependent.created_at)}</td>
+                    <td>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => openEditModal(dependent)}
+                          className="p-1 text-blue-600 hover:text-blue-800"
+                          title="Editar"
+                        >
+                          <Edit className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => confirmDelete(dependent)}
+                          className="p-1 text-red-600 hover:text-red-800"
+                          title="Excluir"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
       

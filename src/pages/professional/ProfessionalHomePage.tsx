@@ -374,38 +374,40 @@ const ProfessionalHomePage: React.FC = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Data</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Cliente</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-700">Serviço</th>
-                      <th className="text-right py-3 px-4 font-medium text-gray-700">Valor Total</th>
-                      <th className="text-right py-3 px-4 font-medium text-gray-700">Valor a Pagar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {revenueReport.consultations.map((consultation, index) => (
-                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="py-3 px-4 text-sm text-gray-600">
-                          {formatDate(consultation.date)}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-900">
-                          {consultation.client_name || 'N/A'}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">
-                          {consultation.service_name || 'N/A'}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-900 text-right font-medium">
-                          {formatCurrency(consultation.total_value)}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-red-600 text-right font-medium">
-                          {formatCurrency(consultation.amount_to_pay)}
-                        </td>
+                <div className="max-h-[400px] overflow-y-auto">
+                  <table className="min-w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-3 px-4 font-medium text-gray-700">Data</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-700">Cliente</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-700">Serviço</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-700">Valor Total</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-700">Valor a Pagar</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {revenueReport.consultations.slice(0, 3).map((consultation, index) => (
+                        <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-3 px-4 text-sm text-gray-600">
+                            {formatDate(consultation.date)}
+                          </td>
+                          <td className="py-3 px-4 text-sm text-gray-900">
+                            {consultation.client_name || 'N/A'}
+                          </td>
+                          <td className="py-3 px-4 text-sm text-gray-600">
+                            {consultation.service_name || 'N/A'}
+                          </td>
+                          <td className="py-3 px-4 text-sm text-gray-900 text-right font-medium">
+                            {formatCurrency(consultation.total_value)}
+                          </td>
+                          <td className="py-3 px-4 text-sm text-red-600 text-right font-medium">
+                            {formatCurrency(consultation.amount_to_pay)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

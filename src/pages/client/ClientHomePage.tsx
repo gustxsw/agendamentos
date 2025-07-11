@@ -236,17 +236,17 @@ const ClientHomePage: React.FC = () => {
           <div className="text-center py-8 bg-gray-50 rounded-lg">
             <CalendarClock className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
-              {selectedFilter === 'all' 
+              {selectedFilter === 'all'
                 ? 'Nenhuma consulta encontrada'
                 : `Nenhuma consulta encontrada para ${
-                    selectedFilter === 'titular' 
-                      ? 'o titular' 
+                    selectedFilter === 'titular'
+                      ? 'o titular'
                       : dependents.find(d => d.id.toString() === selectedFilter)?.name || 'este usuário'
                   }`
               }
             </h3>
             <p className="text-gray-600">
-              {selectedFilter === 'all' 
+              {selectedFilter === 'all'
                 ? 'Você ainda não possui consultas registradas.'
                 : 'Não há consultas registradas para este usuário.'
               }
@@ -254,7 +254,8 @@ const ClientHomePage: React.FC = () => {
           </div>
         ) : (
           <div className="table-container">
-            <table className="table">
+            <div className="max-h-[400px] overflow-y-auto">
+              <table className="table">
               <thead>
                 <tr>
                   <th>Data</th>
@@ -289,7 +290,8 @@ const ClientHomePage: React.FC = () => {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         )}
 
