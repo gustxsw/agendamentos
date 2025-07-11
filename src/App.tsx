@@ -28,7 +28,6 @@ import EnhancedAgendaPage from "./pages/professional/EnhancedAgendaPage";
 import EnhancedPatientsPage from "./pages/professional/EnhancedPatientsPage";
 import EnhancedReportsPage from "./pages/professional/EnhancedReportsPage";
 import DocumentsPage from "./pages/professional/DocumentsPage";
-import DocumentsPage from "./pages/professional/DocumentsPage";
 import EnhancedAdminReportsPage from "./pages/admin/EnhancedReportsPage";
 
 // 🔥 NEW: Clinic pages
