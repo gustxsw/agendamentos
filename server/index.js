@@ -3,12 +3,24 @@
 import express from 'express';
 import cors from 'cors';
 import { pool } from './db.js';
+import { v2 as cloudinary } from 'cloudinary';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import { authenticate, authorize } from './middleware/auth.js';
 import createUpload from './middleware/upload.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import handlebars from 'handlebars';
+import puppeteer from 'puppeteer';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+// Get current directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { format } from 'date-fns';
 import handlebars from 'handlebars';
 import puppeteer from 'puppeteer';
@@ -29,7 +41,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Create upload middleware
-let upload;
+const { upload, processUpload } = createUpload();
 try {
   upload = createUpload();
 } catch (error) {
@@ -3486,23 +3498,17 @@ app.post('/api/upload-image', authenticate, async (req, res) => {
     uploadMiddleware.single('image')(req, res, async (err) => {
       if (err) {
         console.error('❌ Upload error:', err);
-        return res.status(400).json({ message: err.message || 'Erro ao fazer upload da imagem' });
+    // Use the processUpload middleware
+    processUpload('image')(req, res, async (err) => {
+      if (err) return res.status(400).json({ message: err.message });
+      
+      if (!req.cloudinaryResult) {
+        return res.status(400).json({ message: 'Falha ao fazer upload da imagem' });
       }
       
-      if (!req.file) {
-        return res.status(400).json({ message: 'Nenhuma imagem enviada' });
-      }
-      
-      // Update user's photo_url
-      await pool.query(
-        'UPDATE users SET photo_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-        [req.file.path, req.user.id]
-      );
-      
-      // Image uploaded successfully
-      res.status(200).json({
-        message: 'Imagem enviada com sucesso',
-        imageUrl: req.file.path
+      // Return the secure URL
+      res.json({ 
+        imageUrl: req.cloudinaryResult.secure_url 
       });
     });
   } catch (error) {
@@ -3511,6 +3517,316 @@ app.post('/api/upload-image', authenticate, async (req, res) => {
   }
 });
 
+// Document Templates API
+
+// Create document template table if not exists
+app.get('/api/setup-document-tables', authenticate, authorize(['admin']), async (req, res) => {
+  try {
+    // Create document_templates table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS document_templates (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name text NOT NULL,
+        type text NOT NULL,
+        content text NOT NULL,
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now()
+      )
+    `);
+    
+    // Create generated_documents table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS generated_documents (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        patient_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        professional_id integer REFERENCES users(id) ON DELETE SET NULL,
+        type text NOT NULL,
+        url text NOT NULL,
+        created_at timestamptz DEFAULT now()
+      )
+    `);
+    
+    // Add signature_url column to users table if not exists
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'users' AND column_name = 'signature_url'
+        ) THEN
+          ALTER TABLE users ADD COLUMN signature_url text;
+        END IF;
+      END $$;
+    `);
+    
+    res.json({ message: 'Document tables created successfully' });
+  } catch (error) {
+    console.error('Error creating document tables:', error);
+    res.status(500).json({ message: 'Error creating document tables' });
+  }
+});
+
+// Get all document templates
+app.get('/api/document-templates', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM document_templates ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching document templates:', error);
+    res.status(500).json({ message: 'Error fetching document templates' });
+  }
+});
+
+// Create document template
+app.post('/api/document-templates', authenticate, authorize(['admin']), async (req, res) => {
+  try {
+    const { name, type, content } = req.body;
+    
+    if (!name || !type || !content) {
+      return res.status(400).json({ message: 'Name, type, and content are required' });
+    }
+    
+    const result = await pool.query(
+      'INSERT INTO document_templates (name, type, content) VALUES ($1, $2, $3) RETURNING *',
+      [name, type, content]
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating document template:', error);
+    res.status(500).json({ message: 'Error creating document template' });
+  }
+});
+
+// Update document template
+app.put('/api/document-templates/:id', authenticate, authorize(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, type, content } = req.body;
+    
+    if (!name || !type || !content) {
+      return res.status(400).json({ message: 'Name, type, and content are required' });
+    }
+    
+    const result = await pool.query(
+      'UPDATE document_templates SET name = $1, type = $2, content = $3, updated_at = now() WHERE id = $4 RETURNING *',
+      [name, type, content, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Document template not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating document template:', error);
+    res.status(500).json({ message: 'Error updating document template' });
+  }
+});
+
+// Delete document template
+app.delete('/api/document-templates/:id', authenticate, authorize(['admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query('DELETE FROM document_templates WHERE id = $1 RETURNING *', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Document template not found' });
+    }
+    
+    res.json({ message: 'Document template deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting document template:', error);
+    res.status(500).json({ message: 'Error deleting document template' });
+  }
+});
+
+// Get generated documents for a patient
+app.get('/api/generated-documents/patient/:patientId', authenticate, async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    // Check if user is authorized (admin, professional who created the document, or the patient)
+    if (
+      !req.user.roles.includes('admin') && 
+      req.user.id !== parseInt(patientId) &&
+      !req.user.roles.includes('professional')
+    ) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+    
+    let query = `
+      SELECT gd.*, dt.name as template_name, u.name as patient_name
+      FROM generated_documents gd
+      LEFT JOIN document_templates dt ON gd.type = dt.type
+      LEFT JOIN users u ON gd.patient_id = u.id
+      WHERE gd.patient_id = $1
+    `;
+    
+    // If user is a professional, only show documents they created
+    const params = [patientId];
+    if (req.user.roles.includes('professional') && req.user.id !== parseInt(patientId)) {
+      query += ' AND gd.professional_id = $2';
+      params.push(req.user.id);
+    }
+    
+    query += ' ORDER BY gd.created_at DESC';
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching generated documents:', error);
+    res.status(500).json({ message: 'Error fetching generated documents' });
+  }
+});
+
+// Save professional signature
+app.post('/api/professional/signature', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { signature_url } = req.body;
+    
+    if (!signature_url) {
+      return res.status(400).json({ message: 'Signature URL is required' });
+    }
+    
+    await pool.query(
+      'UPDATE users SET signature_url = $1 WHERE id = $2',
+      [signature_url, req.user.id]
+    );
+    
+    res.json({ message: 'Signature saved successfully' });
+  } catch (error) {
+    console.error('Error saving signature:', error);
+    res.status(500).json({ message: 'Error saving signature' });
+  }
+});
+
+// Generate document from template
+app.post('/api/generate-document', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { template_id, patient_id, professional_id, ...templateData } = req.body;
+    
+    if (!template_id || !patient_id) {
+      return res.status(400).json({ message: 'Template ID and patient ID are required' });
+    }
+    
+    // Get template
+    const templateResult = await pool.query('SELECT * FROM document_templates WHERE id = $1', [template_id]);
+    
+    if (templateResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Template not found' });
+    }
+    
+    const template = templateResult.rows[0];
+    
+    // Get patient data
+    const patientResult = await pool.query(
+      'SELECT name, cpf, email, phone, address, address_number, address_complement, neighborhood, city, state FROM users WHERE id = $1',
+      [patient_id]
+    );
+    
+    if (patientResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+    
+    const patient = patientResult.rows[0];
+    
+    // Get professional data
+    const professionalId = professional_id || req.user.id;
+    const professionalResult = await pool.query(
+      'SELECT name, professional_registration, signature_url FROM users WHERE id = $1',
+      [professionalId]
+    );
+    
+    if (professionalResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Professional not found' });
+    }
+    
+    const professional = professionalResult.rows[0];
+    
+    // Prepare template data
+    const now = new Date();
+    const templateContext = {
+      nome: patient.name,
+      cpf: patient.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'),
+      email: patient.email,
+      telefone: patient.phone,
+      endereco: patient.address,
+      numero: patient.address_number,
+      complemento: patient.address_complement,
+      bairro: patient.neighborhood,
+      cidade: patient.city,
+      estado: patient.state,
+      data_atual: format(now, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }),
+      hora_atual: format(now, "HH:mm", { locale: ptBR }),
+      profissional_nome: professional.name,
+      profissional_registro: professional.professional_registration,
+      profissional_assinatura: professional.signature_url,
+      ...templateData
+    };
+    
+    // Load template from file if it exists, otherwise use the template from the database
+    let templateContent = template.content;
+    const templatePath = path.join(__dirname, 'templates', `${template.type}.html`);
+    
+    if (fs.existsSync(templatePath)) {
+      templateContent = fs.readFileSync(templatePath, 'utf8');
+    }
+    
+    // Compile template
+    const compiledTemplate = handlebars.compile(templateContent);
+    const html = compiledTemplate(templateContext);
+    
+    // Generate PDF
+    const browser = await puppeteer.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      headless: 'new'
+    });
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    
+    // Generate PDF buffer
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
+    });
+    
+    await browser.close();
+    
+    // Upload PDF to Cloudinary
+    const pdfUpload = await cloudinary.uploader.upload(
+      `data:application/pdf;base64,${pdfBuffer.toString('base64')}`,
+      {
+        folder: 'quiro-ferreira/documents',
+        resource_type: 'raw',
+        format: 'pdf',
+        public_id: `${template.type}_${patient_id}_${Date.now()}`
+      }
+    );
+    
+    // Save document to database
+    const documentResult = await pool.query(
+      'INSERT INTO generated_documents (patient_id, professional_id, type, url) VALUES ($1, $2, $3, $4) RETURNING *',
+      [patient_id, professionalId, template.type, pdfUpload.secure_url]
+    );
+    
+    const document = documentResult.rows[0];
+    
+    res.json({
+      id: document.id,
+      patient_id: document.patient_id,
+      professional_id: document.professional_id,
+      type: document.type,
+      url: document.url,
+      created_at: document.created_at
+    });
+  } catch (error) {
+    console.error('Error generating document:', error);
+    res.status(500).json({ message: 'Error generating document' });
+  }
+});
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);

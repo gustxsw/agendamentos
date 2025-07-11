@@ -1,5 +1,4 @@
 import multer from 'multer';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
 
 // 🔥 FIXED: Import cloudinary properly and validate credentials
 const createCloudinaryConfig = async () => {
@@ -60,22 +59,9 @@ const createStorage = () => {
     throw new Error('Cloudinary not properly configured');
   }
   
-  return new CloudinaryStorage({
-    cloudinary: cloudinary,
-    params: {
-      folder: 'quiro-ferreira/professionals', // Folder in Cloudinary
-      allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-      transformation: [
-        {
-          width: 400,
-          height: 400,
-          crop: 'fill',
-          gravity: 'face',
-          quality: 'auto:good'
-        }
-      ]
-    },
-  });
+  // Create custom storage engine without CloudinaryStorage
+  const storage = multer.memoryStorage();
+  return storage;
 };
 
 // Create multer instance
@@ -83,7 +69,7 @@ const createUpload = () => {
   try {
     const storage = createStorage();
     
-    return multer({
+    const upload = multer({
       storage: storage,
       limits: {
         fileSize: 5 * 1024 * 1024, // 5MB limit
@@ -99,6 +85,52 @@ const createUpload = () => {
         }
       },
     });
+    
+    // Add middleware to handle Cloudinary upload after multer processes the file
+    const processUpload = (fieldName) => {
+      return async (req, res, next) => {
+        const uploadMiddleware = upload.single(fieldName);
+        
+        uploadMiddleware(req, res, async (err) => {
+          if (err) {
+            return next(err);
+          }
+          
+          if (!req.file) {
+            return next();
+          }
+          
+          try {
+            // Upload to Cloudinary
+            const result = await cloudinary.uploader.upload(
+              `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
+              {
+                folder: 'quiro-ferreira/professionals',
+                allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+                transformation: [
+                  {
+                    width: 400,
+                    height: 400,
+                    crop: 'fill',
+                    gravity: 'face',
+                    quality: 'auto:good'
+                  }
+                ]
+              }
+            );
+            
+            // Add Cloudinary result to request
+            req.cloudinaryResult = result;
+            next();
+          } catch (error) {
+            console.error('❌ Error uploading to Cloudinary:', error);
+            next(error);
+          }
+        });
+      };
+    };
+    
+    return { upload, processUpload };
   } catch (error) {
     console.error('❌ Error creating upload middleware:', error);
     throw error;
