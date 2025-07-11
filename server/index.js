@@ -38,6 +38,218 @@ app.get('/', (req, res) => {
   res.send('API is running...');
 });
 
+// Auth routes
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { 
+      name, cpf, email, phone, birth_date, 
+      address, address_number, address_complement, 
+      neighborhood, city, state, password 
+    } = req.body;
+    
+    // Validate required fields
+    if (!name || !cpf || !password) {
+      return res.status(400).json({ message: 'Nome, CPF e senha são obrigatórios' });
+    }
+    
+    // Check if user already exists
+    const userExists = await pool.query(
+      'SELECT * FROM users WHERE cpf = $1',
+      [cpf]
+    );
+    
+    if (userExists.rows.length > 0) {
+      return res.status(400).json({ message: 'Usuário já cadastrado com este CPF' });
+    }
+    
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    
+    // Create user
+    const result = await pool.query(
+      `INSERT INTO users (
+        name, cpf, email, phone, birth_date, 
+        address, address_number, address_complement, 
+        neighborhood, city, state, password, roles
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [
+        name, cpf, email, phone, birth_date, 
+        address, address_number, address_complement, 
+        neighborhood, city, state, hashedPassword, ['client']
+      ]
+    );
+    
+    const user = result.rows[0];
+    
+    // Create JWT token
+    const token = jwt.sign(
+      { id: user.id, currentRole: 'client' },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
+    );
+    
+    // Set cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+    
+    // Return user data (without password)
+    const { password: _, ...userData } = user;
+    
+    res.status(201).json({
+      user: { ...userData, currentRole: 'client' },
+      token
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Erro ao registrar usuário' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { cpf, password } = req.body;
+    
+    // Validate input
+    if (!cpf || !password) {
+      return res.status(400).json({ message: 'CPF e senha são obrigatórios' });
+    }
+    
+    // Find user
+    const result = await pool.query(
+      'SELECT * FROM users WHERE cpf = $1',
+      [cpf]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: 'Credenciais inválidas' });
+    }
+    
+    const user = result.rows[0];
+    
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
+    
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Credenciais inválidas' });
+    }
+    
+    // Return user data (without password)
+    const { password: _, ...userData } = user;
+    
+    // Check if user has multiple roles
+    const needsRoleSelection = user.roles && user.roles.length > 1;
+    
+    res.json({
+      user: userData,
+      needsRoleSelection
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Erro ao fazer login' });
+  }
+});
+
+app.post('/api/auth/select-role', async (req, res) => {
+  try {
+    const { userId, role } = req.body;
+    
+    // Validate input
+    if (!userId || !role) {
+      return res.status(400).json({ message: 'ID do usuário e role são obrigatórios' });
+    }
+    
+    // Find user
+    const result = await pool.query(
+      'SELECT * FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Usuário não encontrado' });
+    }
+    
+    const user = result.rows[0];
+    
+    // Check if user has the selected role
+    if (!user.roles || !user.roles.includes(role)) {
+      return res.status(403).json({ message: 'Usuário não possui esta role' });
+    }
+    
+    // Create JWT token with selected role
+    const token = jwt.sign(
+      { id: user.id, currentRole: role },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
+    );
+    
+    // Set cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+    
+    // Return user data with current role
+    const { password: _, ...userData } = user;
+    
+    res.json({
+      user: { ...userData, currentRole: role },
+      token
+    });
+  } catch (error) {
+    console.error('Role selection error:', error);
+    res.status(500).json({ message: 'Erro ao selecionar role' });
+  }
+});
+
+app.post('/api/auth/switch-role', authenticate, async (req, res) => {
+  try {
+    const { role } = req.body;
+    
+    // Validate input
+    if (!role) {
+      return res.status(400).json({ message: 'Role é obrigatória' });
+    }
+    
+    // Check if user has the selected role
+    if (!req.user.roles || !req.user.roles.includes(role)) {
+      return res.status(403).json({ message: 'Usuário não possui esta role' });
+    }
+    
+    // Create JWT token with new role
+    const token = jwt.sign(
+      { id: req.user.id, currentRole: role },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
+    );
+    
+    // Set cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+    
+    // Return user data with new current role
+    res.json({
+      user: { ...req.user, currentRole: role },
+      token
+    });
+  } catch (error) {
+    console.error('Role switch error:', error);
+    res.status(500).json({ message: 'Erro ao trocar role' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('token');
+  res.json({ message: 'Logout realizado com sucesso' });
+});
+
 // Image upload endpoint
 app.post('/api/upload-image', authenticate, async (req, res) => {
   try {
