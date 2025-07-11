@@ -1618,7 +1618,8 @@ app.get('/api/agenda/subscription-status', authenticate, async (req, res) => {
     if (subscriptionResult.rows.length > 0) {
       const subscription = subscriptionResult.rows[0];
       expiryDate = subscription.expiry_date;
-      
+    // Consider payment active if status is 'active' OR if status is 'approved' and not expired
+    const isActive = (payment.status === 'active') || (payment.status === 'approved' && expiryDate > now);
       if (subscription.status === 'active' && new Date(subscription.expiry_date) > new Date()) {
         status = 'active';
         
