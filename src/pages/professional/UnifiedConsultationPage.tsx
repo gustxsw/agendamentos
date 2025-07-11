@@ -390,7 +390,6 @@ const UnifiedConsultationPage: React.FC = () => {
         professional_id: user?.id,
         service_id: serviceId,
         value: Number(value),
-        location_id: selectedLocation,
         date: dateTime.toISOString(),
         notes: notes
       };
@@ -401,10 +400,12 @@ const UnifiedConsultationPage: React.FC = () => {
         requestBody.client_id = selectedDependentId ? null : selectedPatientId;
         requestBody.dependent_id = selectedDependentId;
         requestBody.location_id = selectedLocation;
+        requestBody.location_id = selectedLocation;
       } else if (searchResult.type === 'particular') {
         // Create appointment for particular patient
         endpoint = `${apiUrl}/api/agenda/appointments`;
         requestBody.patient_id = selectedPatientId;
+        requestBody.location_id = selectedLocation;
         requestBody.location_id = selectedLocation;
         requestBody.status = 'completed'; // Mark as completed since it's a consultation
       }
