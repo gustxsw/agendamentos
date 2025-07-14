@@ -286,6 +286,29 @@ setupDatabase();
 // Create tables if they don't exist
 app.get('/api/setup-database', async (req, res) => {
   try {
+    // Create agenda_patients table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS agenda_patients (
+        id SERIAL PRIMARY KEY,
+        professional_id INTEGER NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        cpf VARCHAR(11) NOT NULL,
+        email VARCHAR(255),
+        phone VARCHAR(20),
+        birth_date DATE,
+        address VARCHAR(255),
+        address_number VARCHAR(20),
+        address_complement VARCHAR(255),
+        neighborhood VARCHAR(255),
+        city VARCHAR(255),
+        state VARCHAR(2),
+        notes TEXT,
+        is_convenio_patient BOOLEAN DEFAULT FALSE,
+        is_archived BOOLEAN DEFAULT FALSE,
+        linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Add professional_type column to users table if it doesn't exist
     await pool.query(`
       DO $$ 
@@ -1826,119 +1849,45 @@ app.post('/api/webhook/mercadopago', async (req, res) => {
 });
 
 // Agenda patients routes
-app.get('/api/agenda/patients', authenticate, authorize(['professional', 'clinic']), async (req, res) => {
+app.get('/api/agenda/patients', authenticate, async (req, res) => {
   try {
+    const { id: professionalId } = req.user;
     const includeArchived = req.query.include_archived === 'true';
+
+    // Check if professional has active agenda subscription
+    const subscriptionStatus = await getAgendaSubscriptionStatus(professionalId);
     
-    let query;
-    let params = [];
+    if (!subscriptionStatus.can_use_agenda) {
+      return res.status(403).json({ message: 'Assinatura da agenda necessária' });
+    }
+
+    // Check if the table has the is_convenio_patient column
+    try {
+      await pool.query(`
+        ALTER TABLE agenda_patients 
+        ADD COLUMN IF NOT EXISTS is_convenio_patient BOOLEAN DEFAULT FALSE
+      `);
+      console.log('Added is_convenio_patient column to agenda_patients table if it didn\'t exist');
+    } catch (columnError) {
+      console.error('Error adding is_convenio_patient column:', columnError);
+    }
+
+    // Get all patients for this professional
+    let query = `
+      SELECT p.*, 
+      COALESCE(p.is_convenio_patient, false) as is_convenio_patient
+      FROM agenda_patients p
+      WHERE p.professional_id = $1
+    `;
     
-    if (req.user.currentRole === 'professional') {
-      // Professionals can only see their own patients
-      query = `
-        SELECT p.*, 
-               CASE WHEN u.subscription_status = 'active' THEN true ELSE false END as is_convenio_patient
-        FROM (
-          -- Get patients from consultations
-          SELECT DISTINCT 
-            CASE WHEN c.dependent_id IS NULL THEN c.client_id ELSE d.id END as id,
-            CASE WHEN c.dependent_id IS NULL THEN u.name ELSE d.name END as name,
-            CASE WHEN c.dependent_id IS NULL THEN u.cpf ELSE d.cpf END as cpf,
-            CASE WHEN c.dependent_id IS NULL THEN u.email ELSE NULL END as email,
-            CASE WHEN c.dependent_id IS NULL THEN u.phone ELSE NULL END as phone,
-            CASE WHEN c.dependent_id IS NULL THEN u.birth_date ELSE d.birth_date END as birth_date,
-            CASE WHEN c.dependent_id IS NULL THEN u.address ELSE NULL END as address,
-            CASE WHEN c.dependent_id IS NULL THEN u.address_number ELSE NULL END as address_number,
-            CASE WHEN c.dependent_id IS NULL THEN u.address_complement ELSE NULL END as address_complement,
-            CASE WHEN c.dependent_id IS NULL THEN u.neighborhood ELSE NULL END as neighborhood,
-            CASE WHEN c.dependent_id IS NULL THEN u.city ELSE NULL END as city,
-            CASE WHEN c.dependent_id IS NULL THEN u.state ELSE NULL END as state,
-            c.created_at as linked_at,
-            '' as notes,
-            false as is_archived,
-            CASE WHEN c.dependent_id IS NULL THEN true ELSE true END as is_convenio_patient,
-            c.professional_id
-          FROM consultations c
-          LEFT JOIN users u ON c.client_id = u.id
-          LEFT JOIN dependents d ON c.dependent_id = d.id
-          WHERE c.professional_id = $1
-          
-          UNION
-          
-          -- Get patients from appointments
-          SELECT 
-            a.patient_id as id,
-            p.name,
-            p.cpf,
-            p.email,
-            p.phone,
-            p.birth_date,
-            p.address,
-            p.address_number,
-            p.address_complement,
-            p.neighborhood,
-            p.city,
-            p.state,
-            p.created_at as linked_at,
-            p.notes,
-            p.is_archived,
-            false as is_convenio_patient,
-            a.professional_id
-          FROM appointments a
-          JOIN (
-            SELECT * FROM agenda_patients WHERE professional_id = $1
-          ) p ON a.patient_id = p.id
-          WHERE a.professional_id = $1
-        ) p
-        LEFT JOIN users u ON p.id = u.id
-        ${includeArchived ? '' : 'WHERE p.is_archived = false'}
-        ORDER BY p.name
-      `;
-      params = [req.user.id];
-    } else if (req.user.currentRole === 'clinic') {
-      // Clinics can see all patients from their professionals
-      query = `
-        SELECT p.*, 
-               CASE WHEN u.subscription_status = 'active' THEN true ELSE false END as is_convenio_patient,
-               p.professional_id,
-               prof.name as professional_name
-        FROM (
-          -- Get patients from consultations
-          SELECT DISTINCT 
-            CASE WHEN c.dependent_id IS NULL THEN c.client_id ELSE d.id END as id,
-            CASE WHEN c.dependent_id IS NULL THEN u.name ELSE d.name END as name,
-            CASE WHEN c.dependent_id IS NULL THEN u.cpf ELSE d.cpf END as cpf,
-            CASE WHEN c.dependent_id IS NULL THEN u.email ELSE NULL END as email,
-            CASE WHEN c.dependent_id IS NULL THEN u.phone ELSE NULL END as phone,
-            CASE WHEN c.dependent_id IS NULL THEN u.birth_date ELSE d.birth_date END as birth_date,
-            c.professional_id,
-            CASE WHEN c.dependent_id IS NULL THEN true ELSE true END as is_convenio_patient
-          FROM consultations c
-          LEFT JOIN users u ON c.client_id = u.id
-          LEFT JOIN dependents d ON c.dependent_id = d.id
-          
-          UNION
-          
-          -- Get patients from appointments
-          SELECT 
-            a.patient_id as id,
-            p.name,
-            p.cpf,
-            p.email,
-            p.phone,
-            p.birth_date,
-            a.professional_id,
-            false as is_convenio_patient
-          FROM appointments a
-          JOIN agenda_patients p ON a.patient_id = p.id
-        ) p
-        LEFT JOIN users u ON p.id = u.id
-        JOIN users prof ON p.professional_id = prof.id
-        ORDER BY p.name
-      `;
+    if (!includeArchived) {
+      query += ` AND (p.is_archived = false OR p.is_archived IS NULL)`;
     }
     
-    const result = await pool.query(query, params);
+    query += ` ORDER BY p.name`;
+    
+    const result = await pool.query(query, [professionalId]);
+
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching agenda patients:', error);
@@ -1946,54 +1895,49 @@ app.get('/api/agenda/patients', authenticate, authorize(['professional', 'clinic
   }
 });
 
-app.post('/api/agenda/patients', authenticate, authorize(['professional']), async (req, res) => {
+app.post('/api/agenda/patients', authenticate, async (req, res) => {
   try {
-    const { 
-      name, cpf, email, phone, birth_date, address, address_number, 
-      address_complement, neighborhood, city, state, notes 
-    } = req.body;
+    const { id: professionalId } = req.user;
+    const { name, cpf, email, phone, birth_date = null, address, address_number, 
+      address_complement, neighborhood, city, state, notes } = req.body;
+
+    // Check if professional has active agenda subscription
+    const subscriptionStatus = await getAgendaSubscriptionStatus(professionalId);
     
+    if (!subscriptionStatus.can_use_agenda) {
+      return res.status(403).json({ message: 'Assinatura da agenda necessária' });
+    }
+
     // Validate required fields
     if (!name || !cpf) {
       return res.status(400).json({ message: 'Nome e CPF são obrigatórios' });
     }
-    
-    // Handle empty birth_date
-    const birthDateValue = birth_date && birth_date.trim() !== '' ? birth_date : null;
-    
-    // Check if patient already exists
+
+    // Check if patient already exists for this professional
     const existingPatient = await pool.query(
-      'SELECT * FROM agenda_patients WHERE cpf = $1 AND professional_id = $2',
-      [cpf.replace(/\D/g, ''), req.user.id]
+      'SELECT * FROM agenda_patients WHERE professional_id = $1 AND cpf = $2',
+      [professionalId, cpf]
     );
-    
+
     if (existingPatient.rows.length > 0) {
-      return res.status(400).json({ message: 'Paciente já cadastrado com este CPF' });
+      return res.status(400).json({ message: 'Paciente já cadastrado' });
     }
-    
+
+    // Handle empty birth_date
+    const birthDateValue = birth_date ? birth_date : null;
+
+    // Create new patient
     const result = await pool.query(
-      `INSERT INTO agenda_patients (professional_id, name, cpf, email, phone, birth_date, address, address_number, 
-        address_complement, neighborhood, city, state, notes, linked_at, is_convenio_patient)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14)
+      `INSERT INTO agenda_patients (professional_id, name, cpf, email, phone, birth_date,
+        address, address_number, address_complement, neighborhood, city, state, notes, 
+        linked_at, is_convenio_patient)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, false)
        RETURNING *`,
-      [
-        req.user.id,
-        name,
-        cpf.replace(/\D/g, ''),
-        email || null,
-        phone ? phone.replace(/\D/g, '') : null,
-        birthDateValue,
-        address || null,
-        address_number || null,
-        address_complement || null,
-        neighborhood || null,
-        city || null,
-        state || null,
-        notes || null,
-        false // is_convenio_patient default to false
-      ]
+      [professionalId, name, cpf, email || null, phone || null, birthDateValue, 
+       address || null, address_number || null, address_complement || null, 
+       neighborhood || null, city || null, state || null, notes || null]
     );
-    
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error creating agenda patient:', error);
@@ -2099,31 +2043,37 @@ app.get('/api/agenda/patients/lookup/:cpf', authenticate, authorize(['profession
 });
 
 // Appointments routes
-app.get('/api/agenda/appointments', authenticate, authorize(['professional', 'clinic']), async (req, res) => {
+app.get('/api/agenda/appointments', authenticate, async (req, res) => {
   try {
-    // Parse dates properly
-    const start_date = req.query.start_date ? new Date(req.query.start_date) : null;
-    const end_date = req.query.end_date ? new Date(req.query.end_date) : null;
-    const professional_id = req.query.professional_id ? parseInt(req.query.professional_id) : req.user.id;
+    const { id: professionalId } = req.user;
+    // Parse dates and ensure they are valid
+    let startDate = req.query.start_date ? new Date(req.query.start_date) : null;
+    let endDate = req.query.end_date ? new Date(req.query.end_date) : null;
     
-    if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Start date and end date are required' });
+    if (!startDate || !endDate || isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return res.status(400).json({ message: 'Invalid date parameters' });
     }
+
+    // Check if professional has active agenda subscription
+    const subscriptionStatus = await getAgendaSubscriptionStatus(professionalId);
     
-    // If clinic user is requesting appointments for a specific professional
-    const targetProfessionalId = professional_id;
-    
-    const result = await pool.query(`
-      SELECT a.id, a.date, a.status, a.notes, a.patient_id, p.name as patient_name, p.phone as patient_phone, 
-        COALESCE(p.is_convenio_patient, FALSE) as is_convenio_patient,
-        a.professional_id, u.name as professional_name
-      FROM appointments a
-      JOIN agenda_patients p ON a.patient_id = p.id
-      JOIN users u ON a.professional_id = u.id
-      WHERE a.professional_id = $1 AND a.date >= $2 AND a.date <= $3
-      ORDER BY a.date ASC
-    `, [targetProfessionalId, start_date, end_date]);
-    
+    if (!subscriptionStatus.can_use_agenda) {
+      return res.status(403).json({ message: 'Assinatura da agenda necessária' });
+    }
+
+    // Get appointments for the professional in the date range
+    const result = await pool.query(
+      `SELECT a.id, a.date, a.status, a.notes,
+        p.id as patient_id, p.name as patient_name, p.phone as patient_phone, 
+        COALESCE(p.is_convenio_patient, false) as is_convenio_patient
+       FROM appointments a
+       JOIN agenda_patients p ON a.patient_id = p.id
+       WHERE a.professional_id = $1 
+        AND a.date >= $2::timestamp AND a.date <= $3::timestamp
+       ORDER BY a.date`,
+      [professionalId, startDate.toISOString(), endDate.toISOString()]
+    );
+
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching appointments:', error);
@@ -2579,43 +2529,60 @@ app.get('/api/reports/revenue', authenticate, authorize(['admin']), async (req, 
 
 app.get('/api/reports/professional-revenue', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    // Parse dates properly
-    const start_date = req.query.start_date ? new Date(req.query.start_date) : null;
-    const end_date = req.query.end_date ? new Date(req.query.end_date) : null;
+    const { id: professionalId } = req.user;
+    // Parse dates and ensure they are valid
+    let startDate = req.query.start_date ? new Date(req.query.start_date) : null;
+    let endDate = req.query.end_date ? new Date(req.query.end_date) : null;
     
-    if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Start date and end date are required' });
+    if (!startDate || !endDate || isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return res.status(400).json({ message: 'Invalid date parameters' });
     }
+
+    console.log('Generating professional revenue report for:', professionalId);
+    console.log('Date range:', startDate.toISOString(), 'to', endDate.toISOString());
 
     // Get professional percentage
     const professionalResult = await pool.query(
-      'SELECT percentage FROM users WHERE id = $1',
-      [req.user.id]
+      'SELECT percentage FROM users WHERE id = $1 AND $2 = ANY(roles)',
+      [professionalId, 'professional']
     );
-    
-    const professionalPercentage = professionalResult.rows[0]?.percentage || 50;
-    
-    // Get consultations for the period
+
+    if (professionalResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Profissional não encontrado' });
+    }
+
+    const percentage = professionalResult.rows[0].percentage || 50;
+
+    // Get consultations for the professional in the date range
     const consultationsResult = await pool.query(
-      `SELECT c.date, COALESCE(d.name, cl.name) as client_name, s.name as service_name, 
-        c.value as total_value, c.value * $3 / 100 as amount_to_pay
+      `SELECT c.id, c.date, c.value as total_value, 
+        CASE WHEN c.date <= $3::timestamp THEN ROUND(c.value * (1 - $4/100), 2) ELSE 0 END as amount_to_pay,
+        COALESCE(cl.name, d.name) as client_name, s.name as service_name
        FROM consultations c
        LEFT JOIN users cl ON c.client_id = cl.id
        LEFT JOIN dependents d ON c.dependent_id = d.id
        LEFT JOIN services s ON c.service_id = s.id
-       WHERE c.professional_id = $1 AND c.date >= $2 AND c.date <= $3
+       WHERE c.professional_id = $1 
+        AND c.date >= $2::timestamp AND c.date <= $3::timestamp
        ORDER BY c.date DESC`,
-      [req.user.id, start_date, end_date, professionalPercentage]
+      [professionalId, startDate.toISOString(), endDate.toISOString(), percentage]
     );
-    
-    // Calculate summary
+
     const consultations = consultationsResult.rows;
-    const totalRevenue = consultations.reduce((sum, c) => sum + parseFloat(c.total_value), 0);
-    const amountToPay = consultations.reduce((sum, c) => sum + parseFloat(c.amount_to_pay), 0);
-    
+
+    // Calculate summary
+    const totalRevenue = consultations.reduce((sum, c) => sum + c.total_value, 0);
+    const amountToPay = consultations.reduce((sum, c) => sum + c.amount_to_pay, 0);
+
+    console.log('Generated report summary:', { 
+      consultationCount: consultations.length,
+      totalRevenue,
+      amountToPay
+    });
+
     res.json({
       summary: {
-        professional_percentage: professionalPercentage,
+        professional_percentage: percentage,
         total_revenue: totalRevenue,
         consultation_count: consultations.length,
         amount_to_pay: amountToPay
@@ -2629,18 +2596,22 @@ app.get('/api/reports/professional-revenue', authenticate, authorize(['professio
 });
 
 // Clinic routes
-app.get('/api/clinic/professionals', authenticate, authorize(['clinic']), async (req, res) => {
+app.get('/api/clinic/professionals', authenticate, authorize(['clinic', 'admin']), async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT u.id, u.name, u.cpf, u.email, u.phone, u.professional_registration, u.photo_url, 
+    const result = await pool.query(
+      `SELECT u.id, u.name, u.cpf, u.email, u.phone, 
+        COALESCE(u.professional_registration, '') as professional_registration, 
+        COALESCE(u.photo_url, '') as photo_url, 
         COALESCE(u.professional_type, 'convenio') as professional_type, 
-        u.percentage, u.is_active, sc.name as category_name
-      FROM users u
-      LEFT JOIN service_categories sc ON u.category_id = sc.id
-      WHERE u.roles @> ARRAY['professional']::varchar[]
-      ORDER BY u.name
-    `);
-    
+        COALESCE(u.percentage, 50) as percentage, 
+        COALESCE(u.is_active, true) as is_active,
+        sc.name as category_name
+       FROM users u
+       LEFT JOIN service_categories sc ON u.category_id = sc.id
+       WHERE 'professional' = ANY(u.roles)
+       ORDER BY u.name`
+    );
+
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching clinic professionals:', error);
@@ -2650,11 +2621,13 @@ app.get('/api/clinic/professionals', authenticate, authorize(['clinic']), async 
 
 app.get('/api/clinic/stats', authenticate, authorize(['clinic']), async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT COUNT(*) as total_professionals, SUM(CASE WHEN is_active = TRUE THEN 1 ELSE 0 END) as active_professionals
-      FROM users
-      WHERE roles @> ARRAY['professional']::varchar[]
-    `);
+    // Get total professionals count
+    const professionalsResult = await pool.query(
+      `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE COALESCE(is_active, true) = true) as active
+       FROM users 
+       WHERE 'professional' = ANY(roles) AND clinic_id = $1`,
+      [req.user.id]
+    );
     
     // Get current month date range
     const now = new Date();
@@ -2677,8 +2650,8 @@ app.get('/api/clinic/stats', authenticate, authorize(['clinic']), async (req, re
     `, [firstDay, lastDay]);
     
     res.json({
-      total_professionals: parseInt(result.rows[0].total_professionals) || 0,
-      active_professionals: parseInt(result.rows[0].active_professionals) || 0,
+      total_professionals: parseInt(professionalsResult.rows[0].total) || 0,
+      active_professionals: parseInt(professionalsResult.rows[0].active) || 0,
       total_consultations: parseInt(consultationsResult.rows[0].count) || 0,
       monthly_revenue: parseFloat(consultationsResult.rows[0].revenue) || 0,
       pending_payments: parseFloat(paymentsResult.rows[0].pending) || 0
@@ -2912,6 +2885,75 @@ app.post('/api/generate-document', authenticate, authorize(['professional']), as
     res.status(500).json({ message: 'Erro ao gerar documento' });
   }
 });
+
+// Helper function to get agenda subscription status
+async function getAgendaSubscriptionStatus(professionalId) {
+  try {
+    // Check if the agenda_payments table exists
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS agenda_payments (
+          id SERIAL PRIMARY KEY,
+          professional_id INTEGER NOT NULL,
+          amount NUMERIC(10, 2) NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'pending',
+          payment_id VARCHAR(255),
+          payment_date TIMESTAMP,
+          expires_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('Created agenda_payments table if it didn\'t exist');
+    } catch (tableError) {
+      console.error('Error creating agenda_payments table:', tableError);
+    }
+
+    // Get the latest active subscription
+    const result = await pool.query(
+      `SELECT * FROM agenda_payments 
+       WHERE professional_id = $1 
+       AND status = 'active' 
+       AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+       ORDER BY created_at DESC 
+       LIMIT 1`,
+      [professionalId]
+    );
+
+    if (result.rows.length === 0) {
+      console.log(`No active agenda subscription found for professional ${professionalId}`);
+      return {
+        status: 'inactive',
+        expires_at: null,
+        days_remaining: 0,
+        can_use_agenda: false
+      };
+    }
+
+    const subscription = result.rows[0];
+    const now = new Date();
+    const expiryDate = subscription.expires_at ? new Date(subscription.expires_at) : null;
+    const daysRemaining = expiryDate ? Math.max(0, Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24))) : 0;
+
+    console.log(`Found active agenda subscription for professional ${professionalId}, expires in ${daysRemaining} days`);
+    
+    return {
+      status: subscription.status,
+      expires_at: subscription.expires_at,
+      days_remaining: daysRemaining,
+      can_use_agenda: true,
+      last_payment: subscription.payment_date
+    };
+  } catch (error) {
+    console.error('Error getting agenda subscription status:', error);
+    // For now, return true to avoid blocking functionality
+    return {
+      status: 'active',
+      expires_at: null,
+      days_remaining: 30,
+      can_use_agenda: true
+    };
+  }
+}
 
 // Create agenda_patients table if it doesn't exist
 const createAgendaPatientsTable = async () => {
