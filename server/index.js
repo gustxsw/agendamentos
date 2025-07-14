@@ -283,6 +283,55 @@ const setupDatabase = async () => {
 // Run database setup
 setupDatabase();
 
+// Create tables if they don't exist
+app.get('/api/setup-database', async (req, res) => {
+  try {
+    // Add professional_type column to users table if it doesn't exist
+    await pool.query(`
+      DO $$ 
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'users' AND column_name = 'professional_type'
+        ) THEN
+          ALTER TABLE users ADD COLUMN professional_type VARCHAR(50) DEFAULT 'convenio';
+        END IF;
+      END $$;
+    `);
+
+    // Add is_active column to users table if it doesn't exist
+    await pool.query(`
+      DO $$ 
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'users' AND column_name = 'is_active'
+        ) THEN
+          ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
+        END IF;
+      END $$;
+    `);
+
+    // Add is_convenio_patient column to agenda_patients table if it doesn't exist
+    await pool.query(`
+      DO $$ 
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'agenda_patients' AND column_name = 'is_convenio_patient'
+        ) THEN
+          ALTER TABLE agenda_patients ADD COLUMN is_convenio_patient BOOLEAN DEFAULT FALSE;
+        END IF;
+      END $$;
+    `);
+
+    res.json({ message: 'Database setup completed successfully' });
+  } catch (error) {
+    console.error('Error setting up database:', error);
+    res.status(500).json({ message: 'Error setting up database' });
+  }
+});
+
 // Auth routes
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -1899,19 +1948,9 @@ app.get('/api/agenda/patients', authenticate, authorize(['professional', 'clinic
 
 app.post('/api/agenda/patients', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    const {
-      name,
-      cpf,
-      email,
-      phone,
-      birth_date,
-      address,
-      address_number,
-      address_complement,
-      neighborhood,
-      city,
-      state,
-      notes
+    const { 
+      name, cpf, email, phone, birth_date, address, address_number, 
+      address_complement, neighborhood, city, state, notes 
     } = req.body;
     
     // Validate required fields
@@ -1919,36 +1958,39 @@ app.post('/api/agenda/patients', authenticate, authorize(['professional']), asyn
       return res.status(400).json({ message: 'Nome e CPF são obrigatórios' });
     }
     
+    // Handle empty birth_date
+    const birthDateValue = birth_date && birth_date.trim() !== '' ? birth_date : null;
+    
     // Check if patient already exists
-    const patientExists = await pool.query(
+    const existingPatient = await pool.query(
       'SELECT * FROM agenda_patients WHERE cpf = $1 AND professional_id = $2',
       [cpf.replace(/\D/g, ''), req.user.id]
     );
     
-    if (patientExists.rows.length > 0) {
+    if (existingPatient.rows.length > 0) {
       return res.status(400).json({ message: 'Paciente já cadastrado com este CPF' });
     }
     
-    // Insert new patient
     const result = await pool.query(
-      `INSERT INTO agenda_patients (
-        professional_id, name, cpf, email, phone, birth_date, 
-        address, address_number, address_complement, neighborhood, city, state, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      `INSERT INTO agenda_patients (professional_id, name, cpf, email, phone, birth_date, address, address_number, 
+        address_complement, neighborhood, city, state, notes, linked_at, is_convenio_patient)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14)
+       RETURNING *`,
       [
         req.user.id,
         name,
         cpf.replace(/\D/g, ''),
-        email,
+        email || null,
         phone ? phone.replace(/\D/g, '') : null,
-        birth_date,
-        address,
-        address_number,
-        address_complement,
-        neighborhood,
-        city,
-        state,
-        notes
+        birthDateValue,
+        address || null,
+        address_number || null,
+        address_complement || null,
+        neighborhood || null,
+        city || null,
+        state || null,
+        notes || null,
+        false // is_convenio_patient default to false
       ]
     );
     
@@ -2059,48 +2101,29 @@ app.get('/api/agenda/patients/lookup/:cpf', authenticate, authorize(['profession
 // Appointments routes
 app.get('/api/agenda/appointments', authenticate, authorize(['professional', 'clinic']), async (req, res) => {
   try {
-    const { start_date, end_date } = req.query;
+    // Parse dates properly
+    const start_date = req.query.start_date ? new Date(req.query.start_date) : null;
+    const end_date = req.query.end_date ? new Date(req.query.end_date) : null;
+    const professional_id = req.query.professional_id ? parseInt(req.query.professional_id) : req.user.id;
     
     if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Data de início e fim são obrigatórias' });
+      return res.status(400).json({ message: 'Start date and end date are required' });
     }
     
-    let query;
-    let params = [];
+    // If clinic user is requesting appointments for a specific professional
+    const targetProfessionalId = professional_id;
     
-    if (req.user.currentRole === 'professional') {
-      // Professionals can only see their own appointments
-      query = `
-        SELECT a.*, p.name as patient_name, p.phone as patient_phone, p.is_convenio_patient
-        FROM appointments a
-        JOIN agenda_patients p ON a.patient_id = p.id
-        WHERE a.professional_id = $1
-          AND a.date BETWEEN $2 AND $3
-        ORDER BY a.date
-      `;
-      params = [req.user.id, start_date, end_date];
-    } else if (req.user.currentRole === 'clinic') {
-      // Clinics can see appointments for a specific professional
-      const { professional_id } = req.query;
-      
-      if (!professional_id) {
-        return res.status(400).json({ message: 'ID do profissional é obrigatório' });
-      }
-      
-      query = `
-        SELECT a.*, p.name as patient_name, p.phone as patient_phone, p.is_convenio_patient,
-               u.name as professional_name
-        FROM appointments a
-        JOIN agenda_patients p ON a.patient_id = p.id
-        JOIN users u ON a.professional_id = u.id
-        WHERE a.professional_id = $1
-          AND a.date BETWEEN $2 AND $3
-        ORDER BY a.date
-      `;
-      params = [professional_id, start_date, end_date];
-    }
+    const result = await pool.query(`
+      SELECT a.id, a.date, a.status, a.notes, a.patient_id, p.name as patient_name, p.phone as patient_phone, 
+        COALESCE(p.is_convenio_patient, FALSE) as is_convenio_patient,
+        a.professional_id, u.name as professional_name
+      FROM appointments a
+      JOIN agenda_patients p ON a.patient_id = p.id
+      JOIN users u ON a.professional_id = u.id
+      WHERE a.professional_id = $1 AND a.date >= $2 AND a.date <= $3
+      ORDER BY a.date ASC
+    `, [targetProfessionalId, start_date, end_date]);
     
-    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching appointments:', error);
@@ -2556,39 +2579,34 @@ app.get('/api/reports/revenue', authenticate, authorize(['admin']), async (req, 
 
 app.get('/api/reports/professional-revenue', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    const { start_date, end_date } = req.query;
+    // Parse dates properly
+    const start_date = req.query.start_date ? new Date(req.query.start_date) : null;
+    const end_date = req.query.end_date ? new Date(req.query.end_date) : null;
     
     if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Data de início e fim são obrigatórias' });
+      return res.status(400).json({ message: 'Start date and end date are required' });
     }
-    
+
     // Get professional percentage
     const professionalResult = await pool.query(
       'SELECT percentage FROM users WHERE id = $1',
       [req.user.id]
     );
     
-    const percentage = professionalResult.rows[0]?.percentage || 50;
+    const professionalPercentage = professionalResult.rows[0]?.percentage || 50;
     
-    // Get consultations
-    const consultationsResult = await pool.query(`
-      SELECT 
-        c.id,
-        c.date,
-        CASE 
-          WHEN c.dependent_id IS NULL THEN u.name 
-          ELSE d.name 
-        END as client_name,
-        s.name as service_name,
-        c.value as total_value,
-        c.value * (100 - $3) / 100 as amount_to_pay
-      FROM consultations c
-      LEFT JOIN users u ON c.client_id = u.id
-      LEFT JOIN dependents d ON c.dependent_id = d.id
-      JOIN services s ON c.service_id = s.id
-      WHERE c.professional_id = $1 AND c.date BETWEEN $2 AND $3
-      ORDER BY c.date DESC
-    `, [req.user.id, start_date, end_date, percentage]);
+    // Get consultations for the period
+    const consultationsResult = await pool.query(
+      `SELECT c.date, COALESCE(d.name, cl.name) as client_name, s.name as service_name, 
+        c.value as total_value, c.value * $3 / 100 as amount_to_pay
+       FROM consultations c
+       LEFT JOIN users cl ON c.client_id = cl.id
+       LEFT JOIN dependents d ON c.dependent_id = d.id
+       LEFT JOIN services s ON c.service_id = s.id
+       WHERE c.professional_id = $1 AND c.date >= $2 AND c.date <= $3
+       ORDER BY c.date DESC`,
+      [req.user.id, start_date, end_date, professionalPercentage]
+    );
     
     // Calculate summary
     const consultations = consultationsResult.rows;
@@ -2597,7 +2615,7 @@ app.get('/api/reports/professional-revenue', authenticate, authorize(['professio
     
     res.json({
       summary: {
-        professional_percentage: percentage,
+        professional_percentage: professionalPercentage,
         total_revenue: totalRevenue,
         consultation_count: consultations.length,
         amount_to_pay: amountToPay
@@ -2614,14 +2632,14 @@ app.get('/api/reports/professional-revenue', authenticate, authorize(['professio
 app.get('/api/clinic/professionals', authenticate, authorize(['clinic']), async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT u.id, u.name, u.professional_registration, u.photo_url,
-             u.percentage, u.category_id, c.name as category_name,
-             u.professional_type, u.is_active
+      SELECT u.id, u.name, u.cpf, u.email, u.phone, u.professional_registration, u.photo_url, 
+        COALESCE(u.professional_type, 'convenio') as professional_type, 
+        u.percentage, u.is_active, sc.name as category_name
       FROM users u
-      LEFT JOIN service_categories c ON u.category_id = c.id
-      WHERE $1 = ANY(u.roles)
+      LEFT JOIN service_categories sc ON u.category_id = sc.id
+      WHERE u.roles @> ARRAY['professional']::varchar[]
       ORDER BY u.name
-    `, ['professional']);
+    `);
     
     res.json(result.rows);
   } catch (error) {
@@ -2632,18 +2650,16 @@ app.get('/api/clinic/professionals', authenticate, authorize(['clinic']), async 
 
 app.get('/api/clinic/stats', authenticate, authorize(['clinic']), async (req, res) => {
   try {
+    const result = await pool.query(`
+      SELECT COUNT(*) as total_professionals, SUM(CASE WHEN is_active = TRUE THEN 1 ELSE 0 END) as active_professionals
+      FROM users
+      WHERE roles @> ARRAY['professional']::varchar[]
+    `);
+    
     // Get current month date range
     const now = new Date();
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    
-    // Get total professionals
-    const professionalsResult = await pool.query(`
-      SELECT COUNT(*) as total, 
-             SUM(CASE WHEN is_active = true THEN 1 ELSE 0 END) as active
-      FROM users 
-      WHERE $1 = ANY(roles)
-    `, ['professional']);
     
     // Get monthly consultations
     const consultationsResult = await pool.query(`
@@ -2661,8 +2677,8 @@ app.get('/api/clinic/stats', authenticate, authorize(['clinic']), async (req, re
     `, [firstDay, lastDay]);
     
     res.json({
-      total_professionals: parseInt(professionalsResult.rows[0].total) || 0,
-      active_professionals: parseInt(professionalsResult.rows[0].active) || 0,
+      total_professionals: parseInt(result.rows[0].total_professionals) || 0,
+      active_professionals: parseInt(result.rows[0].active_professionals) || 0,
       total_consultations: parseInt(consultationsResult.rows[0].count) || 0,
       monthly_revenue: parseFloat(consultationsResult.rows[0].revenue) || 0,
       pending_payments: parseFloat(paymentsResult.rows[0].pending) || 0
