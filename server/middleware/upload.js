@@ -1,5 +1,5 @@
 import multer from 'multer';
-import { v2 as cloudinary } from 'cloudinary';
+import cloudinary from 'cloudinary';
 import dotenv from 'dotenv';
 
 // Load environment variables
@@ -22,7 +22,7 @@ console.log('API Secret:', process.env.CLOUDINARY_API_SECRET ? '✅ Found' : '�
 // Test Cloudinary connection
 const testCloudinaryConnection = async () => {
   try {
-    await cloudinary.api.ping();
+    await cloudinary.v2.api.ping();
     console.log('✅ Cloudinary connection test successful');
     return true;
   } catch (error) {
@@ -68,7 +68,7 @@ const processUpload = (fieldName) => {
       
       try {
         // Upload to Cloudinary
-        const result = await cloudinary.uploader.upload(
+        const result = await cloudinary.v2.uploader.upload(
           `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
           {
             folder: 'quiro-ferreira',
