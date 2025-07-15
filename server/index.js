@@ -14,7 +14,8 @@ import { fileURLToPath } from 'url';
 import Handlebars from 'handlebars';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import mercadopago from 'mercadopago';
+// Import MercadoPago SDK v2
+import { MercadoPagoConfig, Preference } from 'mercadopago';
 
 // Load environment variables
 dotenv.config();
@@ -28,9 +29,15 @@ cloudinary.config({
 });
 
 // Configure MercadoPago
-mercadopago.configure({
-  access_token: process.env.MP_ACCESS_TOKEN
-});
+if (process.env.MP_ACCESS_TOKEN) {
+  // Initialize the MercadoPago client with SDK v2
+  const mercadopago = new MercadoPagoConfig({
+    accessToken: process.env.MP_ACCESS_TOKEN,
+  });
+  console.log('✅ MercadoPago SDK v2 configured successfully');
+} else {
+  console.warn('⚠️ MercadoPago SDK v2 not configured - missing MP_ACCESS_TOKEN');
+}
 
 // Initialize Express app
 const app = express();
@@ -2483,39 +2490,38 @@ app.get('/api/agenda/subscription-status', authenticate, authorize(['professiona
 // Create agenda subscription payment
 app.post('/api/agenda/create-subscription-payment', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    // Create preference
-    const preference = {
+    // Initialize the Preference client with SDK v2
+    const preference = new Preference(mercadopago);
+    
+    // Create preference data object for SDK v2
+    const preferenceData = {
       items: [
         {
-          title: 'Assinatura Mensal da Agenda Profissional',
+          title: 'Assinatura da Agenda Profissional',
+          unit_price: 49.90,
           quantity: 1,
-          currency_id: 'BRL',
-          unit_price: 49.90
         }
       ],
       back_urls: {
         success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda`,
         failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda`,
-        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda`
+        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional/agenda`,
       },
       auto_return: 'approved',
-      notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/agenda/webhook`,
-      external_reference: `professional_${req.user.id}`,
-      metadata: {
-        professional_id: req.user.id,
-        payment_type: 'agenda_subscription'
-      }
+      external_reference: `agenda_subscription_${req.user.id}`,
+      notification_url: `${process.env.API_URL || 'http://localhost:3001'}/api/webhook/mercadopago`,
     };
     
-    const response = await mercadopago.preferences.create(preference);
+    // Create the preference with SDK v2
+    const response = await preference.create({ body: preferenceData });
+    console.log('✅ MercadoPago SDK v2 preference created for agenda subscription:', response.id);
     
-    res.status(200).json({
-      id: response.body.id,
-      init_point: response.body.init_point,
-      sandbox_init_point: response.body.sandbox_init_point
+    res.json({
+      id: response.id,
+      init_point: response.init_point,
     });
   } catch (error) {
-    console.error('Error creating agenda subscription payment:', error);
+    console.error('❌ Error creating agenda subscription payment:', error);
     res.status(500).json({ message: 'Erro ao criar pagamento da assinatura da agenda' });
   }
 });
@@ -3396,53 +3402,188 @@ app.get('/api/generated-documents/patient/:patientId', authenticate, authorize([
 // Create subscription payment
 app.post('/api/create-subscription', authenticate, async (req, res) => {
   try {
-    const { user_id } = req.body;
+    const { user_id, dependent_ids = [] } = req.body;
     
-    // Validate required fields
-    if (!user_id) {
-      return res.status(400).json({ message: 'ID do usuário é obrigatório' });
+    // Initialize the Preference client with SDK v2
+    const preference = new Preference(mercadopago);
+    
+    // Create items array
+    const items = [
+      {
+        title: 'Assinatura Convênio Quiro Ferreira',
+        unit_price: 250,
+        quantity: 1,
+      }
+    ];
+    
+    // Add dependent fee if any
+    if (dependent_ids.length > 0) {
+      items.push({
+        title: `Taxa de ${dependent_ids.length} dependente(s)`,
+        unit_price: dependent_ids.length * 50,
+        quantity: 1,
+      });
     }
     
-    // Check if user exists
-    const userCheck = await pool.query('SELECT * FROM users WHERE id = $1', [user_id]);
-    if (userCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Usuário não encontrado' });
-    }
-    
-    // Create preference
-    const preference = {
-      items: [
-        {
-          title: 'Assinatura Mensal do Convênio Quiro Ferreira',
-          quantity: 1,
-          currency_id: 'BRL',
-          unit_price: 250.00
-        }
-      ],
+    // Create preference data object for SDK v2
+    const preferenceData = {
+      items: items,
       back_urls: {
         success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`,
         failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`,
-        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`
+        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`,
       },
       auto_return: 'approved',
-      notification_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/subscription/webhook`,
-      external_reference: `client_${user_id}`,
-      metadata: {
-        user_id,
-        payment_type: 'subscription'
-      }
+      external_reference: `subscription_${user_id}`,
+      notification_url: `${process.env.API_URL || 'http://localhost:3001'}/api/webhook/mercadopago`,
     };
     
-    const response = await mercadopago.preferences.create(preference);
+    // Create the preference with SDK v2
+    const response = await preference.create({ body: preferenceData });
+    console.log('✅ MercadoPago SDK v2 preference created:', response.id);
     
-    res.status(200).json({
-      id: response.body.id,
-      init_point: response.body.init_point,
-      sandbox_init_point: response.body.sandbox_init_point
+    res.json({
+      id: response.id,
+      init_point: response.init_point,
     });
   } catch (error) {
-    console.error('Error creating subscription payment:', error);
+    console.error('❌ Error creating subscription payment:', error);
     res.status(500).json({ message: 'Erro ao criar pagamento da assinatura' });
+  }
+});
+
+// Create professional payment
+app.post('/api/professional/create-payment', authenticate, authorize(['professional']), async (req, res) => {
+  try {
+    const { amount } = req.body;
+    
+    // Initialize the Preference client with SDK v2
+    const preference = new Preference(mercadopago);
+    
+    // Create preference data object for SDK v2
+    const preferenceData = {
+      items: [
+        {
+          title: 'Pagamento ao Convênio Quiro Ferreira',
+          unit_price: Number(amount),
+          quantity: 1,
+        }
+      ],
+      back_urls: {
+        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional`,
+        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional`,
+        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/professional`,
+      },
+      auto_return: 'approved',
+      external_reference: `professional_payment_${req.user.id}`,
+      notification_url: `${process.env.API_URL || 'http://localhost:3001'}/api/webhook/mercadopago`,
+    };
+    
+    // Create the preference with SDK v2
+    const response = await preference.create({ body: preferenceData });
+    console.log('✅ MercadoPago SDK v2 preference created for professional payment:', response.id);
+    
+    res.json({
+      id: response.id,
+      init_point: response.init_point,
+    });
+  } catch (error) {
+    console.error('❌ Error creating professional payment:', error);
+    res.status(500).json({ message: 'Erro ao criar pagamento profissional' });
+  }
+});
+
+// MercadoPago webhook
+app.post('/api/webhook/mercadopago', async (req, res) => {
+  try {
+    // SDK v2 webhook handling
+    const { action, data } = req.body;
+    
+    if (action === 'payment.created' || action === 'payment.updated') {
+      const paymentId = data.id;
+      
+      // Get payment details
+      // For SDK v2, we need to use the Payment API
+      const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to get payment details: ${response.statusText}`);
+      }
+      
+      const payment = await response.json();
+      const externalReference = payment.external_reference;
+      const status = payment.status;
+      
+      console.log('📌 MercadoPago webhook received:', { paymentId, externalReference, status });
+      
+      if (status === 'approved') {
+        if (externalReference?.startsWith('subscription_')) {
+          const userId = externalReference.split('_')[1];
+          
+          // Calculate expiry date (30 days from now)
+          const expiryDate = new Date();
+          expiryDate.setDate(expiryDate.getDate() + 30);
+          
+          // Update user subscription status
+          await pool.query(`
+            UPDATE users SET
+              subscription_status = 'active',
+              subscription_expiry = $1
+            WHERE id = $2
+          `, [expiryDate.toISOString(), userId]);
+          
+          // Save payment
+          await pool.query(`
+            INSERT INTO subscription_payments (
+              user_id, payment_id, status, amount, payment_method, expires_at
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+          `, [
+            userId, 
+            paymentId, 
+            'approved', 
+            payment.transaction_amount, 
+            payment.payment_method_id,
+            expiryDate.toISOString()
+          ]);
+          
+          console.log(`✅ Subscription payment approved for user ${userId}`);
+        } else if (externalReference?.startsWith('professional_payment_')) {
+          const professionalId = externalReference.split('_')[2];
+          console.log(`✅ Professional payment approved for professional ${professionalId}`);
+        } else if (externalReference?.startsWith('agenda_subscription_')) {
+          const professionalId = externalReference.split('_')[2];
+          
+          // Calculate expiry date (30 days from now)
+          const expiryDate = new Date();
+          expiryDate.setDate(expiryDate.getDate() + 30);
+          
+          // Save payment
+          await pool.query(`
+            INSERT INTO agenda_payments (
+              professional_id, payment_id, status, amount, payment_method, expires_at
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+          `, [
+            professionalId, 
+            paymentId, 
+            'active', 
+            payment.transaction_amount, 
+            payment.payment_method_id,
+            expiryDate.toISOString()
+          ]);
+          
+          console.log(`✅ Agenda subscription payment approved for professional ${professionalId}`);
+        }
+      }
+    }
+    
+    res.status(200).send();
+  } catch (error) {
+    console.error('❌ MercadoPago webhook error:', error);
+    res.status(500).json({ message: 'Erro ao processar webhook do MercadoPago' });
   }
 });
 
@@ -3658,5 +3799,5 @@ app.post('/api/upload-image', authenticate, upload.single('image'), async (req, 
 // ===== SERVER START =====
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT} with MercadoPago SDK v2`);
 });
