@@ -2583,50 +2583,48 @@ app.post('/api/agenda/webhook', async (req, res) => {
 // Get schedule config
 app.get('/api/agenda/schedule-config', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    // Check if schedule_config table exists
+    // First check if the table exists
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_name = 'schedule_config'
-      ) as exists
+      );
     `);
     
     if (!tableCheck.rows[0].exists) {
-      // Create schedule_config table if it doesn't exist
+      // Create the table if it doesn't exist
       await pool.query(`
         CREATE TABLE IF NOT EXISTS schedule_config (
           id SERIAL PRIMARY KEY,
-          professional_id INTEGER REFERENCES users(id),
-          monday_start TIME,
-          monday_end TIME,
-          tuesday_start TIME,
-          tuesday_end TIME,
-          wednesday_start TIME,
-          wednesday_end TIME,
-          thursday_start TIME,
-          thursday_end TIME,
-          friday_start TIME,
-          friday_end TIME,
-          saturday_start TIME,
-          saturday_end TIME,
-          sunday_start TIME,
-          sunday_end TIME,
+          professional_id INTEGER NOT NULL,
+          monday_start VARCHAR(5),
+          monday_end VARCHAR(5),
+          tuesday_start VARCHAR(5),
+          tuesday_end VARCHAR(5),
+          wednesday_start VARCHAR(5),
+          wednesday_end VARCHAR(5),
+          thursday_start VARCHAR(5),
+          thursday_end VARCHAR(5),
+          friday_start VARCHAR(5),
+          friday_end VARCHAR(5),
+          saturday_start VARCHAR(5),
+          saturday_end VARCHAR(5),
+          sunday_start VARCHAR(5),
+          sunday_end VARCHAR(5),
           slot_duration INTEGER DEFAULT 30,
-          break_start TIME,
-          break_end TIME,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          break_start VARCHAR(5),
+          break_end VARCHAR(5),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
       `);
     }
-    
-    // Get schedule config
-    const result = await pool.query(`
-      SELECT *
-      FROM schedule_config
-      WHERE professional_id = $1
-    `, [req.user.id]);
-    
+
+    // Now query the table
+    const result = await pool.query(
+      'SELECT * FROM schedule_config WHERE professional_id = $1',
+      [req.user.id]
+    );
+
     if (result.rows.length === 0) {
       // Create default schedule config
       const defaultConfig = await pool.query(`
@@ -2815,8 +2813,18 @@ app.get('/api/agenda/patients', authenticate, async (req, res) => {
 app.post('/api/agenda/patients', authenticate, authorize(['professional']), async (req, res) => {
   try {
     const { 
-      name, cpf, email, phone, birth_date, address, address_number,
-      address_complement, neighborhood, city, state, notes
+      name, 
+      cpf, 
+      email, 
+      phone, 
+      birth_date, 
+      address, 
+      address_number, 
+      address_complement, 
+      neighborhood, 
+      city, 
+      state, 
+      notes 
     } = req.body;
     
     // Validate required fields
@@ -2833,27 +2841,51 @@ app.post('/api/agenda/patients', authenticate, authorize(['professional']), asyn
     if (patientCheck.rows.length > 0) {
       return res.status(400).json({ message: 'Paciente com este CPF já existe' });
     }
+
+    // Check if the agenda_patients table has the linked_at column
+    const columnCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.columns 
+        WHERE table_name = 'agenda_patients' AND column_name = 'linked_at'
+      );
+    `);
     
-    // Create patient
+    // Check if the is_convenio_patient column exists
+    const convenioColumnCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.columns 
+        WHERE table_name = 'agenda_patients' AND column_name = 'is_convenio_patient'
+      );
+    `);
+    
+    // Add missing columns if needed
+    if (!columnCheck.rows[0].exists) {
+      await pool.query(`
+        ALTER TABLE agenda_patients ADD COLUMN linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      `);
+    }
+    
+    if (!convenioColumnCheck.rows[0].exists) {
+      await pool.query(`
+        ALTER TABLE agenda_patients ADD COLUMN is_convenio_patient BOOLEAN DEFAULT false;
+      `);
+    }
+
+    // Now create the patient with all required columns
     const result = await pool.query(`
       INSERT INTO agenda_patients (
-        professional_id, name, cpf, email, phone, birth_date, address, address_number,
-        address_complement, neighborhood, city, state, notes, is_convenio_patient,
-        is_archived, linked_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CURRENT_TIMESTAMP)
+        name, cpf, email, phone, birth_date, address, address_number, 
+        address_complement, neighborhood, city, state, notes, professional_id, 
+        linked_at, is_convenio_patient, is_archived
+      ) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, $14, false) 
       RETURNING *
-    `, [
-      req.user.id, name, cpf, email, phone, 
-      birth_date || null, // Handle empty birth_date
-      address, address_number, address_complement, neighborhood, city, state, notes,
-      false, // is_convenio_patient
-      false  // is_archived
-    ]);
-    
+    `, [name, cpf, email || null, phone || null, birth_date || null, address || null, address_number || null, address_complement || null, neighborhood || null, city || null, state || null, notes || null, req.user.id, false]);
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error('Error creating agenda patient:', error);
-    res.status(500).json({ message: 'Erro ao criar paciente da agenda' });
+    console.error('Error creating agenda patient:', error.message);
+    res.status(500).json({ message: 'Erro ao criar paciente' });
   }
 });
 
@@ -2945,34 +2977,62 @@ app.get('/api/agenda/patients/lookup/:cpf', authenticate, authorize(['profession
 // Get appointments
 app.get('/api/agenda/appointments', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    const { start_date, end_date } = req.query;
+    let { start_date, end_date } = req.query;
     
-    // Validate required fields
     if (!start_date || !end_date) {
-      return res.status(400).json({ message: 'Data inicial e data final são obrigatórias' });
+      return res.status(400).json({ message: 'Data inicial e final são obrigatórias' });
     }
     
-    // Parse dates
-    const parsedStartDate = new Date(start_date);
-    const parsedEndDate = new Date(end_date);
-    
-    if (isNaN(parsedStartDate.getTime()) || isNaN(parsedEndDate.getTime())) {
-      return res.status(400).json({ message: 'Datas inválidas' });
+    // Validate dates
+    try {
+      start_date = new Date(start_date).toISOString();
+      end_date = new Date(end_date).toISOString();
+    } catch (error) {
+      return res.status(400).json({ message: 'Formato de data inválido' });
     }
+
+    // Check if the appointments table exists
+    const tableCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'appointments'
+      );
+    `);
     
-    // Get appointments
+    if (!tableCheck.rows[0].exists) {
+      // Create the table if it doesn't exist
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS appointments (
+          id SERIAL PRIMARY KEY,
+          patient_id INTEGER NOT NULL,
+          professional_id INTEGER NOT NULL,
+          date TIMESTAMP NOT NULL,
+          status VARCHAR(50) DEFAULT 'scheduled',
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          location_id INTEGER
+        );
+      `);
+    }
+
+    // Check if the is_convenio_patient column exists in agenda_patients
+    const columnCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.columns 
+        WHERE table_name = 'agenda_patients' AND column_name = 'is_convenio_patient'
+      );
+    `);
+    
     const result = await pool.query(`
       SELECT a.*, p.name as patient_name, p.phone as patient_phone, 
-             COALESCE(p.is_convenio_patient, FALSE) as is_convenio_patient
-      FROM appointments a
-      JOIN agenda_patients p ON a.patient_id = p.id
-      WHERE a.professional_id = $1
-      AND a.date >= $2::timestamp
-      AND a.date <= $3::timestamp
-      ORDER BY a.date
-    `, [req.user.id, parsedStartDate.toISOString(), parsedEndDate.toISOString()]);
-    
-    res.status(200).json(result.rows);
+      COALESCE(p.is_convenio_patient, false) as is_convenio_patient 
+      FROM appointments a JOIN agenda_patients p ON a.patient_id = p.id 
+      WHERE a.professional_id = $1 AND a.date BETWEEN $2::timestamp AND $3::timestamp ORDER BY a.date
+    `, [req.user.id, start_date, end_date]
+    );
+
+    res.json(result.rows);
   } catch (error) {
     console.error('Error fetching appointments:', error);
     res.status(500).json({ message: 'Erro ao buscar agendamentos' });
@@ -2982,31 +3042,36 @@ app.get('/api/agenda/appointments', authenticate, authorize(['professional']), a
 // Create appointment
 app.post('/api/agenda/appointments', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    const { patient_id, date, notes, service_id, value, location_id } = req.body;
-    
-    // Validate required fields
+    const { patient_id, date, notes, location_id } = req.body;
+
     if (!patient_id || !date) {
       return res.status(400).json({ message: 'ID do paciente e data são obrigatórios' });
     }
     
-    // Check if patient exists and belongs to this professional
-    const patientCheck = await pool.query(`
-      SELECT * FROM agenda_patients
-      WHERE id = $1 AND professional_id = $2
-    `, [patient_id, req.user.id]);
-    
-    if (patientCheck.rows.length === 0) {
-      return res.status(404).json({ message: 'Paciente não encontrado ou não pertence a este profissional' });
+    // Validate date
+    try {
+      new Date(date);
+      // Convert to Brazil timezone (UTC-3)
+      const brazilDate = new Date(date);
+      // No need to adjust if the date is already in the correct format
+    } catch (error) {
+      return res.status(400).json({ message: 'Formato de data inválido' });
     }
     
-    // Create appointment
-    const result = await pool.query(`
-      INSERT INTO appointments (
-        professional_id, patient_id, date, status, notes, service_id, value, location_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *
-    `, [req.user.id, patient_id, date, 'scheduled', notes, service_id, value, location_id]);
+    // Check if the appointments table has the location_id column
+    const columnCheck = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.columns 
+        WHERE table_name = 'appointments' AND column_name = 'location_id'
+      );
+    `);
     
+    const query = columnCheck.rows[0].exists 
+      ? 'INSERT INTO appointments (patient_id, professional_id, date, notes, location_id) VALUES ($1, $2, $3, $4, $5) RETURNING *'
+      : 'INSERT INTO appointments (patient_id, professional_id, date, notes) VALUES ($1, $2, $3, $4) RETURNING *';
+    
+    const result = await pool.query(query, [patient_id, req.user.id, date, notes || null, ...(columnCheck.rows[0].exists ? [location_id || null] : [])]);
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Appointment creation error:', error);
@@ -3193,16 +3258,16 @@ app.delete('/api/professional-locations/:id', authenticate, authorize(['professi
 // Get document templates
 app.get('/api/document-templates', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    // Check if document_templates table exists
+    // Check if the table exists
     const tableCheck = await pool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_name = 'document_templates'
-      ) as exists
+      );
     `);
     
     if (!tableCheck.rows[0].exists) {
-      // Create document_templates table if it doesn't exist
+      // Create the table if it doesn't exist
       await pool.query(`
         CREATE TABLE IF NOT EXISTS document_templates (
           id SERIAL PRIMARY KEY,
@@ -3212,155 +3277,130 @@ app.get('/api/document-templates', authenticate, authorize(['professional']), as
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
-      `);
-      
-      // Insert default templates
-      await pool.query(`
-        INSERT INTO document_templates (name, type, content) VALUES
-        ('Atestado Médico', 'atestado', 'Template de atestado médico'),
-        ('Receituário', 'receituario', 'Template de receituário'),
-        ('Termo de Consentimento', 'termo_consentimento', 'Template de termo de consentimento'),
-        ('Termo LGPD', 'lgpd', 'Template de termo LGPD'),
-        ('Solicitação de Exames', 'solicitacao_exames', 'Template de solicitação de exames'),
-        ('Declaração de Comparecimento', 'declaracao_comparecimento', 'Template de declaração de comparecimento')
+        
+        -- Insert default templates
+        INSERT INTO document_templates (name, type, content) VALUES 
+        ('Atestado Médico', 'atestado', '<!DOCTYPE html><html><head><title>Atestado Médico</title></head><body><h1>Atestado Médico</h1><p>Atesto para os devidos fins que o(a) paciente <strong>{{nome}}</strong>, portador(a) do CPF <strong>{{cpf}}</strong>, esteve sob meus cuidados profissionais no dia <strong>{{data_consulta}}</strong>, necessitando de afastamento de suas atividades por um período de <strong>{{dias_afastamento}}</strong> dia(s), a contar desta data.</p><p>CID: {{cid}}</p><p>{{observacoes}}</p><div class="signature"><div class="signature-line">{{profissional_nome}}<br>{{profissional_registro}}</div></div></body></html>'),
+        ('Receituário', 'receituario', '<!DOCTYPE html><html><head><title>Receituário</title></head><body><h1>Receituário</h1><div class="patient-info"><p><strong>Paciente:</strong> {{nome}}</p><p><strong>CPF:</strong> {{cpf}}</p><p><strong>Data:</strong> {{data_atual}}</p></div><div class="content">{{prescricao}}</div><div class="signature"><div class="signature-line">{{profissional_nome}}<br>{{profissional_registro}}</div></div></body></html>'),
+        ('Solicitação de Exames', 'solicitacao_exames', '<!DOCTYPE html><html><head><title>Solicitação de Exames</title></head><body><h1>Solicitação de Exames</h1><div class="patient-info"><p><strong>Paciente:</strong> {{nome}}</p><p><strong>CPF:</strong> {{cpf}}</p><p><strong>Data:</strong> {{data_atual}}</p><p><strong>Hipótese Diagnóstica:</strong> {{hipotese_diagnostica}}</p></div><div class="content"><strong>EXAMES SOLICITADOS:</strong>{{exames_solicitados}}</div><div class="signature"><div class="signature-line">{{profissional_nome}}<br>{{profissional_registro}}</div></div></body></html>'),
+        ('Termo de Consentimento', 'termo_consentimento', '<!DOCTYPE html><html><head><title>Termo de Consentimento</title></head><body><h1>Termo de Consentimento Livre e Esclarecido</h1><div class="content"><p>Eu, <strong>{{nome}}</strong>, portador(a) do CPF <strong>{{cpf}}</strong>, declaro que fui devidamente informado(a) pelo(a) profissional <strong>{{profissional_nome}}</strong>, sobre o procedimento <strong>{{procedimento}}</strong> a ser realizado, bem como seus benefícios, riscos, complicações potenciais e alternativas.</p><p>{{descricao_procedimento}}</p><p>Declaro que compreendi perfeitamente tudo o que me foi informado sobre o procedimento ao qual vou me submeter e que tive a oportunidade de esclarecer todas as minhas dúvidas.</p><p>Assim, declaro estar devidamente informado(a) e dou o meu consentimento para a realização do procedimento proposto.</p></div><div class="signature-area"><div class="signature"><div class="signature-line">{{nome}}<br>CPF: {{cpf}}</div></div><div class="signature"><div class="signature-line">{{profissional_nome}}<br>{{profissional_registro}}</div></div></div></body></html>'),
+        ('Termo LGPD', 'lgpd', '<!DOCTYPE html><html><head><title>Termo de Consentimento LGPD</title></head><body><h1>Termo de Consentimento para Tratamento de Dados Pessoais</h1><div class="content"><p>Eu, <strong>{{nome}}</strong>, portador(a) do CPF <strong>{{cpf}}</strong>, em conformidade com a Lei Geral de Proteção de Dados Pessoais (LGPD) - Lei nº 13.709/2018, autorizo o Convênio Quiro Ferreira Saúde a realizar o tratamento dos meus dados pessoais e dados pessoais sensíveis, conforme descrito neste documento.</p></div><div class="signature-area"><div class="signature"><div class="signature-line">{{nome}}<br>CPF: {{cpf}}</div></div><div class="signature"><div class="signature-line">{{profissional_nome}}<br>{{profissional_registro}}</div></div></div></body></html>'),
+        ('Declaração de Comparecimento', 'declaracao_comparecimento', '<!DOCTYPE html><html><head><title>Declaração de Comparecimento</title></head><body><h1>Declaração de Comparecimento</h1><div class="content"><p>Declaro para os devidos fins que o(a) Sr(a). <strong>{{nome}}</strong>, portador(a) do CPF <strong>{{cpf}}</strong>, compareceu a esta unidade de saúde no dia <strong>{{data_consulta}}</strong>, no horário de <strong>{{hora_inicio}}</strong> às <strong>{{hora_fim}}</strong>, para atendimento/procedimento de <strong>{{procedimento}}</strong>.</p><p>{{observacoes}}</p></div><div class="signature"><div class="signature-line">{{profissional_nome}}<br>{{profissional_registro}}</div></div></body></html>');
       `);
     }
-    
-    // Get templates
-    const result = await pool.query(`
-      SELECT *
-      FROM document_templates
-      ORDER BY name
-    `);
-    
-    res.status(200).json(result.rows);
+
+    const result = await pool.query('SELECT * FROM document_templates ORDER BY name');
+    res.json(result.rows);
   } catch (error) {
-    console.error('Error fetching document templates:', error);
-    res.status(500).json({ message: 'Erro ao buscar templates de documentos' });
+    console.error('Error fetching document templates:', error.message);
+    res.status(500).json({ message: 'Erro ao carregar templates de documentos' });
   }
 });
 
 // Generate document
 app.post('/api/generate-document', authenticate, authorize(['professional']), async (req, res) => {
   try {
-    const { template_id, patient_id, professional_id, ...data } = req.body;
-    
-    // Validate required fields
-    if (!template_id || !patient_id || !professional_id) {
-      return res.status(400).json({ 
-        message: 'ID do template, ID do paciente e ID do profissional são obrigatórios' 
-      });
-    }
+    const { template_id, patient_id, professional_id } = req.body;
+    const formData = { ...req.body };
+    delete formData.template_id;
+    delete formData.patient_id;
+    delete formData.professional_id;
     
     // Get template
-    const templateResult = await pool.query(`
-      SELECT * FROM document_templates
-      WHERE id = $1
-    `, [template_id]);
+    const templateResult = await pool.query(
+      'SELECT * FROM document_templates WHERE id = $1',
+      [template_id]
+    );
     
     if (templateResult.rows.length === 0) {
       return res.status(404).json({ message: 'Template não encontrado' });
     }
     
-    const template = templateResult.rows[0];
-    
-    // Get patient data
-    const patientResult = await pool.query(`
-      SELECT * FROM agenda_patients
-      WHERE id = $1 AND professional_id = $2
-    `, [patient_id, req.user.id]);
-    
-    if (patientResult.rows.length === 0) {
-      return res.status(404).json({ message: 'Paciente não encontrado ou não pertence a este profissional' });
-    }
-    
-    const patient = patientResult.rows[0];
-    
     // Get professional data
-    const professionalResult = await pool.query(`
-      SELECT * FROM users
-      WHERE id = $1
-    `, [professional_id]);
+    const professionalResult = await pool.query(
+      'SELECT name, COALESCE(professional_registration, \'\') as professional_registration, COALESCE(signature_url, \'\') as signature_url FROM users WHERE id = $1',
+      [professional_id || req.user.id]
+    );
     
     if (professionalResult.rows.length === 0) {
       return res.status(404).json({ message: 'Profissional não encontrado' });
     }
     
-    const professional = professionalResult.rows[0];
+    // Get patient data - check if it's from agenda_patients or users
+    let patientResult;
+    try {
+      patientResult = await pool.query(
+        'SELECT name, cpf, email, phone, address, address_number, address_complement, neighborhood, city, state FROM agenda_patients WHERE id = $1',
+        [patient_id]
+      );
+      
+      if (patientResult.rows.length === 0) { 
+        // Try to find in users table
+        patientResult = await pool.query(
+          'SELECT name, cpf, email, phone, address, address_number, address_complement, neighborhood, city, state FROM users WHERE id = $1',
+          [patient_id]
+        );
+      }
+    } catch (error) {
+      console.error('Error fetching patient data:', error.message);
+      return res.status(500).json({ message: 'Erro ao buscar dados do paciente' });
+    }
     
-    // Format CPF
-    const formattedCpf = patient.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    if (patientResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Paciente não encontrado' });
+    }
     
-    // Get current date and time
+    // Prepare template data with all required fields
     const now = new Date();
-    const formattedDate = format(now, "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
-    const formattedTime = format(now, "HH:mm", { locale: ptBR });
-    
-    // Prepare template data
     const templateData = {
-      nome: patient.name,
-      cpf: formattedCpf,
-      email: patient.email || '',
-      telefone: patient.phone || '',
-      endereco: patient.address || '',
-      numero: patient.address_number || '',
-      complemento: patient.address_complement || '',
-      bairro: patient.neighborhood || '',
-      cidade: patient.city || '',
-      estado: patient.state || '',
-      data_atual: formattedDate,
-      hora_atual: formattedTime,
-      profissional_nome: professional.name,
-      profissional_registro: professional.professional_registration || '',
-      profissional_assinatura: professional.signature_url || '',
-      ...data
+      nome: patientResult.rows[0].name,
+      cpf: patientResult.rows[0].cpf,
+      email: patientResult.rows[0].email || '',
+      telefone: patientResult.rows[0].phone || '',
+      endereco: patientResult.rows[0].address || '',
+      numero: patientResult.rows[0].address_number || '',
+      complemento: patientResult.rows[0].address_complement || '',
+      bairro: patientResult.rows[0].neighborhood || '',
+      cidade: patientResult.rows[0].city || '',
+      estado: patientResult.rows[0].state || '',
+      data_atual: format(now, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }),
+      profissional_nome: professionalResult.rows[0].name,
+      profissional_registro: professionalResult.rows[0].professional_registration,
+      profissional_assinatura: professionalResult.rows[0].signature_url,
+      ...formData
     };
     
     // Compile template
-    const compiledTemplate = Handlebars.compile(template.content);
-    const html = compiledTemplate(templateData);
+    const template = Handlebars.compile(templateResult.rows[0].content);
+    const html = template(templateData);
     
     // Generate PDF
-    const pdfOptions = { format: 'A4', margin: { top: 20, right: 20, bottom: 20, left: 20 } };
+    const options = { format: 'A4', printBackground: true };
+    const file = { content: html };
     
-    // Generate unique filename
-    const filename = `${template.type}_${patient_id}_${Date.now()}.pdf`;
-    const filePath = path.join(__dirname, 'temp', filename);
-    
-    // Ensure temp directory exists
-    if (!fs.existsSync(path.join(__dirname, 'temp'))) {
-      fs.mkdirSync(path.join(__dirname, 'temp'));
-    }
-    
-    // Write HTML to file
-    fs.writeFileSync(filePath, html);
+    const pdfBuffer = await html_pdf.generatePdf(file, options);
     
     // Upload to Cloudinary
-    const result = await cloudinary.uploader.upload(filePath, {
-      folder: 'quiro-ferreira/documents',
-      resource_type: 'raw',
-      public_id: filename.replace('.pdf', ''),
-      format: 'pdf'
-    });
+    const uploadResult = await cloudinary.uploader.upload(
+      `data:application/pdf;base64,${pdfBuffer.toString('base64')}`,
+      { folder: 'quiro-ferreira/documents', resource_type: 'raw' }
+    );
     
-    // Delete temporary file
-    fs.unlinkSync(filePath);
+    // Save document reference in database
+    const documentResult = await pool.query(
+      'INSERT INTO generated_documents (patient_id, professional_id, type, url, template_name) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [
+        patient_id,
+        professional_id || req.user.id, 
+        templateResult.rows[0].type,
+        uploadResult.secure_url,
+        templateResult.rows[0].name
+      ]
+    );
     
-    // Save document record
-    const documentResult = await pool.query(`
-      INSERT INTO generated_documents (
-        patient_id, professional_id, template_id, type, url
-      ) VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
-    `, [patient_id, professional_id, template_id, template.type, result.secure_url]);
-    
-    res.status(200).json({
-      message: 'Documento gerado com sucesso',
-      document: documentResult.rows[0],
-      url: result.secure_url
-    });
+    res.json({ url: uploadResult.secure_url, id: documentResult.rows[0].id });
   } catch (error) {
-    console.error('Error generating document:', error);
+    console.error('Error generating document:', error.message);
     res.status(500).json({ message: 'Erro ao gerar documento' });
   }
 });
@@ -3402,53 +3442,64 @@ app.get('/api/generated-documents/patient/:patientId', authenticate, authorize([
 // Create subscription payment
 app.post('/api/create-subscription', authenticate, async (req, res) => {
   try {
-    const { user_id, dependent_ids = [] } = req.body;
+    const { user_id } = req.body;
+    const dependent_ids = req.body.dependent_ids || [];
     
-    // Initialize the Preference client with SDK v2
-    const preference = new Preference(mercadopago);
+    // Get user data
+    const userResult = await pool.query(
+      'SELECT name, email FROM users WHERE id = $1',
+      [user_id]
+    );
     
-    // Create items array
-    const items = [
-      {
-        title: 'Assinatura Convênio Quiro Ferreira',
-        unit_price: 250,
-        quantity: 1,
-      }
-    ];
-    
-    // Add dependent fee if any
-    if (dependent_ids.length > 0) {
-      items.push({
-        title: `Taxa de ${dependent_ids.length} dependente(s)`,
-        unit_price: dependent_ids.length * 50,
-        quantity: 1,
-      });
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Usuário não encontrado' });
     }
     
-    // Create preference data object for SDK v2
+    const user = userResult.rows[0];
+    
+    // Calculate total amount
+    const baseAmount = 250; // Base subscription
+    const dependentAmount = dependent_ids.length * 50; // 50 per dependent
+    const totalAmount = baseAmount + dependentAmount;
+    
+    // Create preference
+    const client = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
+    const preference = new Preference(client);
+    const expirationDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year from now
+    
     const preferenceData = {
-      items: items,
+      items: [
+        {
+          id: `subscription_${user_id}`,
+          title: 'Assinatura Convênio Quiro Ferreira',
+          quantity: 1,
+          description: 'Assinatura anual do Convênio Quiro Ferreira',
+          unit_price: totalAmount,
+          currency_id: 'BRL',
+        },
+      ],
       back_urls: {
         success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`,
         failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`,
-        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`,
+        pending: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/client`
       },
       auto_return: 'approved',
-      external_reference: `subscription_${user_id}`,
-      notification_url: `${process.env.API_URL || 'http://localhost:3001'}/api/webhook/mercadopago`,
+      notification_url: `${process.env.API_URL || 'http://localhost:3001'}/api/webhooks/mercadopago`,
+      metadata: {
+        external_reference: `subscription_${user_id}`,
+        user_id: user_id.toString(),
+        payment_type: 'subscription',
+        expiry_date: expirationDate.toISOString()
+      },
     };
     
-    // Create the preference with SDK v2
-    const response = await preference.create({ body: preferenceData });
-    console.log('✅ MercadoPago SDK v2 preference created:', response.id);
+    const preferenceResult = await preference.create({ body: preferenceData });
     
-    res.json({
-      id: response.id,
-      init_point: response.init_point,
-    });
+    res.json(preferenceResult);
+    
   } catch (error) {
-    console.error('❌ Error creating subscription payment:', error);
-    res.status(500).json({ message: 'Erro ao criar pagamento da assinatura' });
+    console.error('Error creating subscription payment:', error.message);
+    res.status(500).json({ message: 'Erro ao criar pagamento' });
   }
 });
 
