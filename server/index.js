@@ -41,7 +41,7 @@ if (process.env.MP_ACCESS_TOKEN) {
 // Initialize Express app
 const app = express();
 app.use(cors({
-  origin: function(origin, callback) {
+  origin: ['http://localhost:3001', 'http://localhost:5173', 'http://localhost:4173'],
     // Allow requests with no origin (like mobile apps, curl, etc)
     if (!origin) return callback(null, true);
     
