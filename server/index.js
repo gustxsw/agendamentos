@@ -18,15 +18,15 @@ import { ptBR } from 'date-fns/locale';
 import { MercadoPagoConfig, Preference } from 'mercadopago';
 
 // Load environment variables
-dotenv.config();
-
-// Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
   secure: true
 });
+// Initialize Express app
+const app = express();
+
 
 // Configure MercadoPago
 if (process.env.MP_ACCESS_TOKEN) {
@@ -57,7 +57,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Get current directory
-const __filename = fileURLToPath(import.meta.url);
+app.use(express.static(path.resolve(__dirname, '../dist')));
 const __dirname = path.dirname(__filename);
 
 // Configure multer for file uploads
