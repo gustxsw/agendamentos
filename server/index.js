@@ -40,6 +40,11 @@ if (process.env.MP_ACCESS_TOKEN) {
 }
 
 // Initialize Express app
+// Serve the frontend for all routes not handled by the API
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
