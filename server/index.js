@@ -15,7 +15,7 @@ import Handlebars from 'handlebars';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 // Import MercadoPago SDK v2
-import { MercadoPagoConfig, Preference } from 'mercadopago';
+import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 
 // Load environment variables
 cloudinary.config({
@@ -24,9 +24,8 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
   secure: true
 });
-// Initialize Express app
-const app = express();
 
+const PORT = process.env.PORT || 3001;
 
 // Configure MercadoPago
 if (process.env.MP_ACCESS_TOKEN) {
@@ -40,25 +39,33 @@ if (process.env.MP_ACCESS_TOKEN) {
 }
 
 // Initialize Express app
-// Serve the frontend for all routes not handled by the API
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
-});
-
 const app = express();
-const PORT = process.env.PORT || 3001;
-
-// Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'https://cartaoquiroferreira.com.br', 'https://www.cartaoquiroferreira.com.br'],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, etc)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'https://cartaoquiroferreira.com.br',
+      'https://www.cartaoquiroferreira.com.br'
+    ];
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
 app.use(cookieParser());
 
-// Get current directory
-app.use(express.static(path.resolve(__dirname, '../dist')));
-const __dirname = path.dirname(__filename);
+// Serve static files from the React app
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const staticPath = path.join(__dirname, '../dist');
+app.use(express.static(staticPath));
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -3850,6 +3857,11 @@ app.post('/api/upload-image', authenticate, upload.single('image'), async (req, 
     console.error('Error uploading image:', error);
     res.status(500).json({ message: 'Erro ao enviar imagem' });
   }
+});
+
+// Serve the frontend for all routes not handled by the API
+app.get('*', (req, res) => {
+  res.sendFile(path.join(staticPath, 'index.html'));
 });
 
 // ===== SERVER START =====
