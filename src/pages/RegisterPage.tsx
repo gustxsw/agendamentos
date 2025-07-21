@@ -34,14 +34,19 @@ const RegisterPage: React.FC = () => {
 
   // Get API URL - PRODUCTION READY
   const getApiUrl = () => {
-    if (
-      window.location.hostname === "www.cartaoquiroferreira.com.br" ||
-      window.location.hostname === "cartaoquiroferreira.com.br"
-    ) {
-      return "https://www.cartaoquiroferreira.com.br";
+    // Always use localhost in development
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:3001';
     }
 
-    return "http://localhost:3001";
+    // Production URLs
+    if (window.location.hostname === 'www.cartaoquiroferreira.com.br' || 
+        window.location.hostname === 'cartaoquiroferreira.com.br') {
+      return 'https://www.cartaoquiroferreira.com.br';
+    }
+    
+    // Fallback to current origin
+    return window.location.origin;
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {

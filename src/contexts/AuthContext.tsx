@@ -27,11 +27,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Get API URL
   const getApiUrl = () => {
+    // Always use localhost in development
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:3001';
+    }
+    
+    // Production URLs
     if (window.location.hostname === 'www.cartaoquiroferreira.com.br' || 
         window.location.hostname === 'cartaoquiroferreira.com.br') {
       return 'https://www.cartaoquiroferreira.com.br';
     }
-    return 'http://localhost:3001';
+    
+    // Fallback to current origin
+    return window.location.origin;
   };
 
   useEffect(() => {
