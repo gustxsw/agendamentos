@@ -1057,12 +1057,13 @@ app.delete('/api/services/:id', authenticate, authorize(['admin']), async (req, 
 app.get('/api/dependents/:clientId', authenticate, async (req, res) => {
   try {
     const { clientId } = req.params;
-// 🔥 FIXED: Get appointments for agenda - now includes both agenda appointments and consultations
-app.get('/api/agenda/appointments', authenticate, async (req, res) => {
+    
+    // Only allow users to access their own dependents or admins to access any dependents
     if (req.user.id !== parseInt(clientId) && !req.user.roles.includes('admin')) {
       return res.status(403).json({ message: 'Acesso não autorizado' });
     }
     
+    const result = await pool.query(
       'SELECT * FROM dependents WHERE client_id = $1 ORDER BY name',
       [clientId]
     );
@@ -1282,50 +1283,7 @@ app.get('/api/consultations', authenticate, async (req, res) => {
         ORDER BY c.date DESC
       `;
     }
-    // 🔥 FIXED: Also include agenda appointments for professionals and clients
-    if (userRole === 'professional') {
-      // For professionals, also include their agenda appointments
-      query = `
-        SELECT 
-          c.id,
-          c.date,
-          c.value,
-          c.notes,
-          s.name as service_name,
-          u_prof.name as professional_name,
-          COALESCE(u_client.name, d.name) as client_name,
-          CASE WHEN d.id IS NOT NULL THEN true ELSE false END as is_dependent,
-          'consultation' as source_type
-        FROM consultations c
-        LEFT JOIN services s ON c.service_id = s.id
-        LEFT JOIN users u_prof ON c.professional_id = u_prof.id
-        LEFT JOIN users u_client ON c.client_id = u_client.id
-        LEFT JOIN dependents d ON c.dependent_id = d.id
-        WHERE c.professional_id = $1
-        
-        UNION ALL
-        
-        SELECT 
-          a.id,
-          a.date,
-          COALESCE(a.value, 0) as value,
-          a.notes,
-          COALESCE(s.name, 'Consulta Particular') as service_name,
-          u_prof.name as professional_name,
-          p.name as client_name,
-          false as is_dependent,
-          'appointment' as source_type
-        FROM agenda_appointments a
-        JOIN agenda_patients p ON a.patient_id = p.id
-        JOIN users u_prof ON a.professional_id = u_prof.id
-        LEFT JOIN services s ON a.service_id = s.id
-        WHERE a.professional_id = $1 AND a.status = 'completed'
-        
-        ORDER BY date DESC
-      `;
-    }
     
-    const result = await pool.query(query, params);
     const result = await pool.query(query, params);
     res.status(200).json(result.rows);
   } catch (error) {
@@ -2139,6 +2097,26 @@ app.get('/api/reports/professional-revenue', authenticate, authorize(['professio
     }
     
     // Get professional percentage
+    const professionalResult = await pool.query(`
+      SELECT COALESCE(percentage, 50) as percentage
+      FROM users
+      WHERE id = $1
+    `, [professionalId]);
+    
+    const professionalPercentage = parseFloat(professionalResult.rows[0].percentage);
+    
+    // Get summary
+    const summaryResult = await pool.query(`
+      SELECT 
+        COUNT(c.id) as total_consultations,
+        COALESCE(SUM(c.value), 0) as total_revenue,
+        COALESCE(SUM(c.value * ($1 / 100)), 0) as amount_to_pay
+      FROM consultations c
+      WHERE c.professional_id = $2
+      AND c.date >= $3::timestamp
+      AND c.date <= $4::timestamp
+    `, [professionalPercentage, professionalId, parsedStartDate.toISOString(), parsedEndDate.toISOString()]);
+    
     // 🔥 FIXED: Get both consultations and agenda appointments for this professional
     const consultationsResult = await pool.query(
       `SELECT 
@@ -2181,31 +2159,9 @@ app.get('/api/reports/professional-revenue', authenticate, authorize(['professio
       [professionalId, start_date, professionalPercentage, end_date]
     );
     
-    // Get consultations
-    const consultationsResult = await pool.query(`
-      SELECT 
-        c.id as consultation_id,
-        c.date,
-        CASE 
-          WHEN c.client_id IS NOT NULL THEN u2.name
-          ELSE d.name
-        END as client_name,
-        s.name as service_name,
-        c.value as total_value,
-        c.value * (1 - $1 / 100) as amount_to_pay
-      FROM consultations c
-      JOIN services s ON c.service_id = s.id
-      LEFT JOIN users u2 ON c.client_id = u2.id
-      LEFT JOIN dependents d ON c.dependent_id = d.id
-      WHERE c.professional_id = $2
-      AND c.date >= $3::timestamp
-      AND c.date <= $4::timestamp
-      ORDER BY c.date DESC
-    `, [percentage, professionalId, parsedStartDate.toISOString(), parsedEndDate.toISOString()]);
-    
     const report = {
       summary: {
-        professional_percentage: percentage,
+        professional_percentage: professionalPercentage,
         ...summaryResult.rows[0]
       },
       consultations: consultationsResult.rows
@@ -3136,7 +3092,7 @@ app.get('/api/agenda/appointments', authenticate, authorize(['professional']), a
       ORDER BY date
     `;
     
-    const result = await pool.query(appointmentsQuery, [professionalId, start_date, end_date]);
+    const result = await pool.query(appointmentsQuery, [req.user.id, start_date, end_date]);
 
     res.json(result.rows);
   } catch (error) {
